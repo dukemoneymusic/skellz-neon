@@ -139,7 +139,37 @@ of a physics stream.
 ### Deployment note
 
 Room state is in memory (`src/server/store.ts`), which is what makes this
-zero-config. It must therefore run as a **single instance**. Render's free plan
+zero-config — and which used to mean every deploy, crash or cold start silently
+killed all the matches in progress.
+
+**Rooms now heal themselves** (`src/server/restore.ts`). Every client is already
+sent the complete authoritative state on each poll, so each one holds a usable
+snapshot. When a client sees its room 404 — or come back with a lower `seq` than
+it last saw, which is what a re-conjured public room looks like — it offers the
+snapshot back and the server rebuilds the room. No database, no accounts, no
+extra service.
+
+Three details make it safe rather than a foot-gun:
+
+- A snapshot is adopted **only if its `seq` is genuinely ahead** of whatever the
+  server holds, so a stale tab can never drag a live match backwards.
+- The **whole roster travels**, CPU seats included. Cap ids are player ids, and
+  bots have no client to speak for them — omit them and the match wedges the
+  moment it reaches a bot's turn.
+- Restored seats hold a placeholder token. The first client presenting a real
+  token claims its seat and it can never be re-claimed, so a restore cannot be
+  used to take over a seat somebody is playing.
+
+`lastShot` is deliberately dropped on restore: it drives the 3D replay, and
+re-playing the turn that was in flight when the server died would desync the
+board.
+
+Everything in `validateSnapshot` is range-checked, because that function is the
+only thing between a hostile payload and the game state. A 4-character room code
+is not a security boundary — the goal is that a bad snapshot can at worst spoil
+one throwaway game, never crash the server.
+
+It must still run as a **single instance**. Render's free plan
 is always one instance so nothing is pinned in `render.yaml`, but if you move to
 a paid plan, do not scale past 1 — players would be routed to instances that
 have never heard of their room. To scale horizontally, move that module to Redis

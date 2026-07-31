@@ -185,11 +185,30 @@ export function listPlayers(roomId: number): Player[] {
   return [...store.players.values()].filter((p) => p.roomId === roomId).sort((a, b) => a.slot - b.slot);
 }
 
-export function addPlayer(init: Omit<Player, "id" | "lastSeen" | "createdAt">): Player {
+/**
+ * Add a player. An explicit `id` may be supplied when rebuilding a room from a
+ * client snapshot — cap ids in the game state are player ids, so a restored
+ * seat has to keep the number it had or it no longer owns its cap.
+ */
+export function addPlayer(init: Omit<Player, "id" | "lastSeen" | "createdAt"> & { id?: number }): Player {
   const now = Date.now();
-  const player: Player = { ...init, id: store.nextPlayerId++, lastSeen: now, createdAt: now };
+  const id = init.id ?? store.nextPlayerId++;
+  if (id >= store.nextPlayerId) store.nextPlayerId = id + 1;
+  const player: Player = { ...init, id, lastSeen: now, createdAt: now };
   store.players.set(player.id, player);
   return player;
+}
+
+/** Insert a fully-formed room, used when adopting a snapshot. */
+export function putRoom(room: Room): Room {
+  if (room.id >= store.nextRoomId) store.nextRoomId = room.id + 1;
+  store.rooms.set(room.code, room);
+  return room;
+}
+
+/** Next free room id, for rooms being rebuilt rather than created fresh. */
+export function reserveRoomId(): number {
+  return store.nextRoomId++;
 }
 
 export function updatePlayer(player: Player, patch: Partial<Player>): Player {

@@ -4,12 +4,16 @@ import { LAST_LEVEL, MAX_PLAYERS } from "@/game/board";
 import { computeBotShot } from "@/game/bot";
 import { COLORS, COLORS2 } from "@/game/colors";
 import { makeCap, resolveShot, type Cap, type ShotInput } from "@/game/sim";
+import { isPendingToken, pendingTokenFor, shouldAdoptSnapshot, validateSnapshot } from "@/server/restore";
 import {
   addLeaderboardRow,
   addPlayer,
   canControl,
   getOrCreateRoom,
+  getRoom,
   listPlayers,
+  putRoom,
+  reserveRoomId,
   updatePlayer,
   updateRoom,
   withRoom,
@@ -20,7 +24,17 @@ import {
 export const dynamic = "force-dynamic";
 
 type Body = {
-  action: "join" | "start" | "shot" | "bot_shot" | "team" | "rematch" | "color" | "next_level" | "add_bot";
+  action:
+    | "join"
+    | "start"
+    | "shot"
+    | "bot_shot"
+    | "team"
+    | "rematch"
+    | "color"
+    | "next_level"
+    | "add_bot"
+    | "restore";
   name?: string;
   token?: string;
   team?: number;
@@ -29,6 +43,7 @@ type Body = {
   angle?: number;
   power?: number;
   seq?: number;
+  snapshot?: unknown;
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -103,6 +118,79 @@ function applyShot(room: Room, roster: Player[], shooterId: string, input: ShotI
   return { result, seq };
 }
 
+/**
+ * Rebuild a room from a client's snapshot after the server lost it.
+ *
+ * Two independent halves: adopting the game state (only if the snapshot is
+ * genuinely ahead of whatever we hold) and re-seating the caller (always, so a
+ * player can get their seat back even when somebody else already restored the
+ * room a moment earlier).
+ */
+function restoreRoom(code: string, body: Body) {
+  const token = typeof body.token === "string" && body.token.length > 0 ? body.token : null;
+  const snap = validateSnapshot(body.snapshot, code);
+  if (!token || !snap) return NextResponse.json({ error: "Bad snapshot" }, { status: 400 });
+
+  let room = getRoom(code);
+  const adopt = shouldAdoptSnapshot(room ? room.seq : null, snap.room.seq);
+  const fields = {
+    status: snap.room.status,
+    teamMode: snap.room.teamMode,
+    mode: snap.room.mode,
+    level: snap.room.level,
+    storyScore: snap.room.storyScore,
+    turnIndex: snap.room.turnIndex,
+    seq: snap.room.seq,
+    state: snap.state,
+    // Deliberately dropped: lastShot drives the 3D replay, and replaying the
+    // turn that was in flight when the server died would desync the board.
+    lastShot: null,
+    winner: snap.room.winner,
+  };
+
+  if (!room) {
+    const host = snap.players.find((p) => p.isHost);
+    room = putRoom({
+      id: reserveRoomId(),
+      code: snap.room.code,
+      hostToken: host && host.id === snap.meId ? token : pendingTokenFor(host?.id ?? 0),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      ...fields,
+    });
+  } else if (adopt) {
+    updateRoom(room, fields);
+  }
+
+  // Re-create every seat, CPUs included — they have no client to speak for them.
+  const roster = listPlayers(room.id);
+  for (const seat of snap.players) {
+    if (roster.some((p) => p.id === seat.id)) continue;
+    addPlayer({
+      id: seat.id,
+      roomId: room.id,
+      token: seat.isBot ? `bot_${nanoid(12)}` : pendingTokenFor(seat.id),
+      name: seat.name,
+      team: seat.team,
+      slot: seat.slot,
+      color: seat.color,
+      color2: seat.color2,
+      isHost: seat.isHost,
+      isBot: seat.isBot,
+    });
+  }
+
+  // Claim our own seat. Only a seat still holding its placeholder can be
+  // claimed, so this can never take a seat somebody is actively playing.
+  const mine = listPlayers(room.id).find((p) => p.id === snap.meId);
+  if (mine && !mine.isBot && isPendingToken(mine.token)) {
+    updatePlayer(mine, { token, lastSeen: Date.now() });
+    if (mine.isHost) updateRoom(room, { hostToken: token });
+  }
+
+  return NextResponse.json({ ok: true, adopted: adopt, seq: room.seq });
+}
+
 /** Build a fresh set of caps for every player currently in the room. */
 function freshCaps(room: Room, roster: Player[]): Cap[] {
   return roster.map((p, i) => makeCap(String(p.id), p.name, p.color, room.teamMode ? p.team : i, i, p.color2));
@@ -117,6 +205,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
   // would each read the same seq, each pass the guard, and the bot would take
   // several turns in a row.
   return withRoom(code, () => {
+    // Handled first: the entire point is that the room may no longer exist.
+    if (body.action === "restore") return restoreRoom(code, body);
+
     const room = getOrCreateRoom(code);
     if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
 

@@ -98,20 +98,90 @@ export default function GameClient({ code }: { code: string }) {
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ dist: number; midX: number } | null>(null);
 
+  /**
+   * Last good view of the room, kept so we can hand it back if the server
+   * loses it. Room state lives in one process's memory, so a deploy, crash or
+   * cold start wipes every match in progress — but every client is sent the
+   * full authoritative state on each poll, so any of us can rebuild it.
+   */
+  const snapshotRef = useRef<Record<string, unknown> | null>(null);
+  const restoringRef = useRef(false);
+
+  /** Offer our snapshot back. Returns true if the server took it or re-seated us. */
+  const offerSnapshot = useCallback(async () => {
+    const snapshot = snapshotRef.current;
+    if (!snapshot || !token || restoringRef.current) return false;
+    restoringRef.current = true;
+    try {
+      const res = await fetch(`/api/rooms/${code}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "restore", token, snapshot }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      restoringRef.current = false;
+    }
+  }, [code, token]);
+
   const poll = useCallback(async () => {
     try {
       const res = await fetch(`/api/rooms/${code}?token=${token ?? ""}`, { cache: "no-store" });
+
+      // The room is gone. If we were mid-match, put it back.
       if (res.status === 404) {
+        if (await offerSnapshot()) return;
         setNotFound(true);
         return;
       }
       if (!res.ok) return;
       setNotFound(false);
-      setData((await res.json()) as Payload);
+      const json = (await res.json()) as Payload;
+
+      // The room exists but has rewound behind what we last saw — the server
+      // restarted and re-created a public room from scratch. Same fix.
+      const snap = snapshotRef.current;
+      const knownSeq = typeof snap?.room === "object" ? (snap.room as { seq: number }).seq : -1;
+      if (snap && json.room.seq < knownSeq) {
+        if (await offerSnapshot()) return;
+      }
+
+      setData(json);
+
+      // Only worth keeping once a match is actually underway.
+      if (json.me && json.room.status !== "lobby" && json.state.caps.length > 0) {
+        snapshotRef.current = {
+          room: {
+            code: json.room.code,
+            status: json.room.status,
+            teamMode: json.room.teamMode,
+            mode: json.room.mode,
+            level: json.room.level,
+            storyScore: json.room.storyScore,
+            turnIndex: json.room.turnIndex,
+            seq: json.room.seq,
+            winner: json.room.winner,
+          },
+          players: json.players.map((p) => ({
+            id: Number(p.id),
+            name: p.name,
+            team: p.team,
+            slot: p.slot,
+            color: p.color,
+            color2: p.color2,
+            isHost: p.isHost,
+            isBot: p.isBot,
+          })),
+          meId: Number(json.me.id),
+          state: json.state,
+        };
+      }
     } catch {
       // transient network blip — the next tick will catch up
     }
-  }, [code, token]);
+  }, [code, token, offerSnapshot]);
 
   // Self-scheduling poll loop rather than setInterval, so a slow response can
   // never stack up overlapping requests against the room.
