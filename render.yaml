@@ -9,13 +9,18 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      # Set to 1 to make this service ping itself every 10 minutes so the free
-      # plan never sleeps and the link is instant. Leave OFF unless this is the
-      # one game you want always-on: Render gives an account 750 free
-      # instance-hours a month and a single always-on service eats ~730 of
-      # them, so two at once will suspend both. See src/server/keep-awake.ts.
+      # ON: this service pings itself every 10 minutes so the free plan never
+      # sleeps. That matters more here than elsewhere because rooms live in
+      # process memory, so a sleep ends any match in progress.
+      #
+      # This is the ONE always-on game on this Render account. An account gets
+      # 750 free instance-hours a month and a single always-on service eats
+      # ~730, so a second one would suspend both. DUKE$DEFENSE was switched to
+      # opt-in (KEEP_AWAKE unset) on 2026-07-31 to make room for this. If you
+      # ever swap them back, turn this off in the same change.
+      # See src/server/keep-awake.ts.
       - key: KEEP_AWAKE
-        value: "0"
+        value: "1"
     # IMPORTANT: room state lives in this process's memory (src/server/store.ts),
     # so the game must run as a SINGLE instance. The free plan is always one
     # instance, which is why nothing is pinned here — but if you ever move to a

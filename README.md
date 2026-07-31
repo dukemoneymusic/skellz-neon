@@ -139,9 +139,13 @@ of a physics stream.
 ### Deployment note
 
 Room state is in memory (`src/server/store.ts`), which is what makes this
-zero-config. It must therefore run as a **single instance** — `render.yaml`
-pins `numInstances: 1`. To scale horizontally, move that module to Redis or
-Postgres; nothing else needs to change.
+zero-config. It must therefore run as a **single instance**. Render's free plan
+is always one instance so nothing is pinned in `render.yaml`, but if you move to
+a paid plan, do not scale past 1 — players would be routed to instances that
+have never heard of their room. To scale horizontally, move that module to Redis
+or Postgres; nothing else needs to change.
+
+Live at **https://skellz-neon.onrender.com**. See [DEPLOY.md](DEPLOY.md).
 
 ## Tests
 
