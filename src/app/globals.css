@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+html,
+body {
+  height: 100%;
+  /* The 3D board handles its own gestures — stop the page itself from panning
+     or rubber-banding underneath it on touch devices. */
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  /* Kills the 300ms double-tap-to-zoom delay without disabling scrolling. */
+  touch-action: manipulation;
+}
+
+/* Installed to the home screen, this is an app, not a document: long-pressing
+   the board should not offer "Copy image" or pop a selection handle. */
+body {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Text input is the one place selection must still work. */
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ---------------------------------------------------------------------------
+   Safe areas.
+
+   With viewport-fit=cover the 3D scene fills the whole screen, including
+   behind a notch and the home indicator — which is what we want for the board.
+   The HUD on top of it has to stay clear of both, so these insets are applied
+   to the controls rather than to the page.
+--------------------------------------------------------------------------- */
+.inset-safe-top {
+  padding-top: max(0.625rem, env(safe-area-inset-top));
+  padding-left: max(0.625rem, env(safe-area-inset-left));
+  padding-right: max(0.625rem, env(safe-area-inset-right));
+}
+
+.bottom-safe {
+  bottom: max(2rem, calc(env(safe-area-inset-bottom) + 0.75rem));
+}
+
+.bottom-safe-sm {
+  bottom: max(6rem, calc(env(safe-area-inset-bottom) + 4.75rem));
+}
+
+.bottom-safe-toast {
+  bottom: max(9.5rem, calc(env(safe-area-inset-bottom) + 8.25rem));
+}
+
+.left-safe {
+  left: max(1.25rem, calc(env(safe-area-inset-left) + 0.75rem));
+}
+
+/* Modals and full-screen panels keep clear of every edge. */
+.pad-safe {
+  padding-top: max(1.25rem, env(safe-area-inset-top));
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+  padding-left: max(1.25rem, env(safe-area-inset-left));
+  padding-right: max(1.25rem, env(safe-area-inset-right));
+}

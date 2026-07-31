@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: skellz-neon
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+    # IMPORTANT: room state lives in this process's memory (src/server/store.ts),
+    # so the game must run as a SINGLE instance. The free plan is always one
+    # instance, which is why nothing is pinned here — but if you ever move to a
+    # paid plan, do not scale this past 1 or players will be routed to
+    # instances that have never heard of their room. To scale out, move
+    # src/server/store.ts to Redis or Postgres first.

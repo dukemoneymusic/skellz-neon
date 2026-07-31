@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>SKELLZ — offline</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: calc(env(safe-area-inset-top) + 1.5rem) 1.5rem calc(env(safe-area-inset-bottom) + 1.5rem);
+        background: #05070d;
+        color: #fff;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        text-align: center;
+      }
+      .cap {
+        width: 92px;
+        height: 92px;
+        margin: 0 auto 1.5rem;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #22d3ee 0 50%, #ff3b6b 50% 100%);
+        border: 6px solid #f2f5f7;
+        opacity: 0.85;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.75rem;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+        color: #22d3ee;
+      }
+      p {
+        margin: 0.75rem 0 0;
+        max-width: 22rem;
+        font-size: 0.95rem;
+        line-height: 1.6;
+        color: rgba(255, 255, 255, 0.6);
+      }
+      button {
+        margin-top: 1.75rem;
+        padding: 0.85rem 2rem;
+        border: 0;
+        border-radius: 0.85rem;
+        background: #22d3ee;
+        color: #05070d;
+        font-size: 0.95rem;
+        font-weight: 800;
+        cursor: pointer;
+      }
+      button:active {
+        transform: scale(0.98);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="cap"></div>
+      <h1>No signal on the lot</h1>
+      <p>
+        SKELLZ is a live game — every flick is settled on the server so all the caps stay in sync. Reconnect and the
+        board will be waiting exactly where you left it.
+      </p>
+      <button onclick="location.reload()">Try again</button>
+    </main>
+    <script>
+      addEventListener("online", () => location.reload());
+    </script>
+  </body>
+</html>

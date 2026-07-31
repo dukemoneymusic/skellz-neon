@@ -1,0 +1,11 @@
+node_modules/
+.next/
+out/
+build/
+.test-build/
+*.tsbuildinfo
+next-env.d.ts
+.impeccable/
+.env*
+.DS_Store
+npm-debug.log*
