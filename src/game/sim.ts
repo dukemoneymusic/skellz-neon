@@ -524,6 +524,30 @@ export function resolveShot(
     }
   }
 
+  // KNOCKED INTO THE MIDDLE
+  // Get struck into one of the 2·4·6·8 panels — cleanly inside, not on a line,
+  // and not the 13 — and you are pinned exactly as if you had landed there off
+  // your own flick. Whoever knocks you back out collects that many boxes.
+  //
+  // Only a legal strike can do this: if the shooter hadn't made box 1 the whole
+  // contact is void, so it can't trap anybody either.
+  if (armed) {
+    for (const c of caps) {
+      if (!c.alive || c.id === shooter.id) continue;
+      // Killas have finished the route — the middle has nothing left to take
+      // from them. Anyone already pinned stays pinned at their own value.
+      if (c.killer || c.stuck || !c.onBoard) continue;
+      const panel = panelValueAt(c.x, c.z);
+      if (panel > 0) {
+        c.stuck = true;
+        c.stuckValue = panel;
+        events.push(
+          `💀 ${shooter.name} knocked ${c.name} into the ${panel} — STUCK until somebody knocks them out (worth ${panel} boxes).`,
+        );
+      }
+    }
+  }
+
   // did the shooter make its box? (skipped when a rescue is relocating them)
   if (shooter.alive && !resolvedMove && !shooter.killer && rescueBonus === 0) {
     const target = ROUTE[shooter.step];

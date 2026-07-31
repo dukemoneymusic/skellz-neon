@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { BOXES, LEVELS, ROUTE, boxByNumber, panelValueAt } from "../src/game/board";
 import { computeBotShot } from "../src/game/bot";
+import { MIN_CHARGE, POWER_CYCLE_MS, powerAt } from "../src/game/power";
 import { makeCap, resolveShot, type Cap, type GameState } from "../src/game/sim";
 
 /** Deterministic RNG so a failing test can always be reproduced. */
@@ -145,6 +146,121 @@ test("landing your target first try blazes 3 boxes, after a miss only 1", () => 
 
   assert.equal(fresh.state.caps[0].step, 5, "first-try landing should jump 3 boxes");
   assert.equal(stale.state.caps[0].step, 3, "a repeat landing should only move 1");
+});
+
+test("getting knocked into a middle panel pins you there", () => {
+  const state = newState(2);
+  const shooter = state.caps[0];
+  const victim = state.caps[1];
+
+  // Both are past box 1, so the strike is legal and the middle is live.
+  shooter.step = 4;
+  victim.step = 4;
+  shooter.onBoard = true;
+  victim.onBoard = true;
+
+  // Park the victim just short of the 4 panel and shove it straight in.
+  victim.x = 3.0;
+  victim.z = 0;
+  shooter.x = victim.x - 3;
+  shooter.z = 0;
+
+  const res = resolveShot(state, false, false, 0, shooter.id, { angle: 0, power: 0.06 });
+  const after = res.state.caps[1];
+
+  assert.equal(after.stuck, true, `victim should be pinned; events: ${res.events.join(" | ")}`);
+  assert.equal(after.stuckValue, 4, "should be pinned in the 4");
+  assert.equal(panelValueAt(after.x, after.z), 4, "and physically sitting in the 4");
+});
+
+test("knocking a pinned top out pays the opponent that many boxes", () => {
+  const state = newState(2);
+  const rescuer = state.caps[0];
+  const pinned = state.caps[1];
+
+  rescuer.step = 4; // armed, next target is box 4
+  rescuer.onBoard = true;
+  pinned.step = 4;
+  pinned.onBoard = true;
+  pinned.stuck = true;
+  pinned.stuckValue = 6;
+  pinned.x = 0;
+  pinned.z = 5.8; // the 6 panel
+  rescuer.x = 0;
+  rescuer.z = pinned.z - 3;
+
+  const before = rescuer.step;
+  const res = resolveShot(state, false, false, 0, rescuer.id, { angle: Math.PI / 2, power: 0.06 });
+  const after = res.state.caps[0];
+
+  assert.equal(res.state.caps[1].stuck, false, "the pinned top is freed");
+  assert.equal(after.step, before + 6, `rescuer should advance 6 boxes, went ${before} → ${after.step}`);
+  assert.ok(
+    res.events.some((e) => e.includes("collect 6 boxes")),
+    `expected the collect event; got: ${res.events.join(" | ")}`,
+  );
+});
+
+test("an illegal strike cannot pin anybody", () => {
+  // The shooter hasn't made box 1, so the whole contact is void.
+  const state = newState(2);
+  const shooter = state.caps[0];
+  const victim = state.caps[1];
+  victim.step = 4;
+  victim.onBoard = true;
+  victim.x = 3.0;
+  victim.z = 0;
+  shooter.x = victim.x - 3;
+  shooter.z = 0;
+  shooter.onBoard = true;
+
+  const res = resolveShot(state, false, false, 0, shooter.id, { angle: 0, power: 0.06 });
+  assert.equal(res.state.caps[1].stuck, false, "a void strike must not trap the victim");
+  assert.ok(res.events.some((e) => e.includes("START ALL OVER")));
+});
+
+test("killas are immune to being knocked into the middle", () => {
+  const state = newState(2);
+  const shooter = state.caps[0];
+  const victim = state.caps[1];
+  shooter.step = 4;
+  shooter.onBoard = true;
+  victim.killer = true;
+  victim.onBoard = true;
+  victim.x = 3.0;
+  victim.z = 0;
+  shooter.x = victim.x - 3;
+  shooter.z = 0;
+
+  const res = resolveShot(state, false, false, 0, shooter.id, { angle: 0, power: 0.06 });
+  assert.equal(res.state.caps[1].stuck, false, "a killa has finished the route — the middle can't hold it");
+});
+
+test("the power meter swings up and back down while held", () => {
+  const H = POWER_CYCLE_MS / 2;
+
+  // Bottom of the swing at the start, top at the halfway point, bottom again
+  // at the end — that is the whole point of releasing on time.
+  assert.ok(Math.abs(powerAt(0) - MIN_CHARGE) < 1e-9, "starts at the floor");
+  assert.ok(Math.abs(powerAt(H) - 1) < 1e-9, "reaches full power halfway");
+  assert.ok(Math.abs(powerAt(POWER_CYCLE_MS) - MIN_CHARGE) < 1e-9, "returns to the floor");
+
+  // Strictly rising then strictly falling.
+  for (let t = 0; t < H; t += 40) assert.ok(powerAt(t + 40) > powerAt(t), `should be rising at ${t}ms`);
+  for (let t = H; t < POWER_CYCLE_MS; t += 40) assert.ok(powerAt(t + 40) < powerAt(t), `should be falling at ${t}ms`);
+
+  // Keeps swinging for as long as you hold, and never leaves a usable range.
+  for (let t = 0; t < POWER_CYCLE_MS * 4; t += 17) {
+    const p = powerAt(t);
+    assert.ok(p >= MIN_CHARGE && p <= 1, `power ${p} out of range at ${t}ms`);
+    assert.ok(Math.abs(p - powerAt(t + POWER_CYCLE_MS)) < 1e-9, "cycle should repeat exactly");
+  }
+});
+
+test("the opening borough is Da Commons", () => {
+  assert.equal(LEVELS[0].name, "Da Commons");
+  // This is the string the chalk decal paints along the edge of the board.
+  assert.equal(`SKELLZ - ${LEVELS[0].name.toUpperCase()}`, "SKELLZ - DA COMMONS");
 });
 
 test("every numbered box is reachable and unique", () => {

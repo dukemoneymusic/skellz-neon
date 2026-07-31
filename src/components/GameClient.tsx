@@ -7,6 +7,7 @@ import type { Playback } from "@/components/Scene";
 import { PLAYBACK_FPS, resolveShot, routeTarget, type Cap, type GameState } from "@/game/sim";
 import { LAST_LEVEL, LEVELS, MAX_PLAYERS, boxByNumber, legOf } from "@/game/board";
 import { isMuted, playShootSound, setMuted, unlockAudio } from "@/game/audio";
+import { MIN_CHARGE, powerAt } from "@/game/power";
 import { useRoomToken, useStoredName } from "@/game/session";
 
 const SWATCHES = [
@@ -283,6 +284,66 @@ export default function GameClient({ code }: { code: string }) {
     return Math.atan2(worldZ, worldX);
   };
 
+  /** The spot this cap is chasing — used to pre-aim, and by the 🤏 tap button. */
+  const targetPointFor = (cap: Cap): { x: number; z: number } | null => {
+    if (cap.killer) {
+      let nearest: Cap | null = null;
+      let minDist = Infinity;
+      for (const c of caps) {
+        if (c.id === cap.id || !c.alive) continue;
+        if (data?.room.teamMode && c.team === cap.team) continue;
+        const d = Math.hypot(c.x - cap.x, c.z - cap.z);
+        if (d < minDist) {
+          minDist = d;
+          nearest = c;
+        }
+      }
+      return nearest ? { x: nearest.x, z: nearest.z } : null;
+    }
+    const t = routeTarget(cap);
+    if (t === null) return null;
+    if (t === 13) return { x: 0, z: 0 };
+    const b = boxByNumber(t);
+    return b ? { x: b.x, z: b.z } : null;
+  };
+
+  /**
+   * Power is a swinging meter, not a pull-back.
+   *
+   * Hold anywhere and the bar sweeps up and down on its own; let go and the cap
+   * flies at whatever it read at that instant. Drag while holding to steer.
+   *
+   * The value lives in a ref and the bar's height is written straight to the
+   * DOM each frame. Putting it in React state would re-render this component
+   * and the whole 3D scene sixty times a second while you were aiming.
+   */
+  const powerRef = useRef(MIN_CHARGE);
+  const meterRef = useRef<HTMLDivElement | null>(null);
+  const chargeRaf = useRef<number | null>(null);
+
+  const stopCharging = useCallback(() => {
+    if (chargeRaf.current !== null) {
+      cancelAnimationFrame(chargeRaf.current);
+      chargeRaf.current = null;
+    }
+  }, []);
+
+  const startCharging = useCallback(() => {
+    if (chargeRaf.current !== null) return;
+    powerRef.current = MIN_CHARGE;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const p = powerAt(now - t0);
+      powerRef.current = p;
+      if (meterRef.current) meterRef.current.style.height = `${(p * 100).toFixed(1)}%`;
+      chargeRaf.current = requestAnimationFrame(tick);
+    };
+    chargeRaf.current = requestAnimationFrame(tick);
+  }, []);
+
+  // Never leave the loop running if the component goes away mid-aim.
+  useEffect(() => stopCharging, [stopCharging]);
+
   /** Fire a shot and play it back locally without waiting for the next poll. */
   const shoot = async (angle: number, power: number) => {
     if (!data || !myId) return;
@@ -321,6 +382,7 @@ export default function GameClient({ code }: { code: string }) {
         midX: (pts[0].x + pts[1].x) / 2,
       };
       dragRef.current = null;
+      stopCharging();
       setAim(null);
       return;
     }
@@ -328,7 +390,12 @@ export default function GameClient({ code }: { code: string }) {
     if (pointersRef.current.size === 1) {
       if (!isMyTurn || !myCap) return;
       dragRef.current = { x: e.clientX, y: e.clientY };
-      setAim({ from: [myCap.x, myCap.z], angle: 0, power: 0 });
+      // Start pointed at whatever you're chasing, so a straight hold-and-release
+      // is already a sensible shot and dragging is only for steering.
+      const tp = targetPointFor(myCap);
+      const angle = tp ? Math.atan2(tp.z - myCap.z, tp.x - myCap.x) : 0;
+      setAim({ from: [myCap.x, myCap.z], angle, power: 0 });
+      startCharging();
     }
   };
 
@@ -354,10 +421,10 @@ export default function GameClient({ code }: { code: string }) {
       if (!dragRef.current || !myCap || !isMyTurn) return;
       const dx = e.clientX - dragRef.current.x;
       const dy = e.clientY - dragRef.current.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist < 6) return;
-      const ref = Math.min(window.innerWidth, window.innerHeight) * 0.45;
-      setAim({ from: [myCap.x, myCap.z], angle: worldFromDrag(dx, dy), power: Math.min(1, dist / ref) });
+      // Drag only steers now — how far you drag no longer affects power.
+      if (Math.hypot(dx, dy) < 6) return;
+      const angle = worldFromDrag(dx, dy);
+      setAim((a) => (a ? { ...a, angle } : a));
     }
   };
 
@@ -367,52 +434,29 @@ export default function GameClient({ code }: { code: string }) {
     if (pointersRef.current.size !== 0) return;
 
     const a = aim;
+    // Whatever the meter read at the moment you let go — that's the shot.
+    const power = powerRef.current;
+    stopCharging();
     dragRef.current = null;
     setAim(null);
-    if (!a || a.power < 0.01 || !isMyTurn) return;
-    await shoot(a.angle, a.power);
+    if (!a || !isMyTurn) return;
+    await shoot(a.angle, power);
   };
 
   const onPointerCancel = (e: React.PointerEvent) => {
     pointersRef.current.delete(e.pointerId);
     dragRef.current = null;
     pinchRef.current = null;
+    stopCharging();
     setAim(null);
   };
 
   /** The micro-tap: a 1.5% flick straight at whatever you are chasing. */
   const handleNudge = async () => {
     if (!isMyTurn || !myCap || !data) return;
-    let tgtX = 0;
-    let tgtZ = 0;
-
-    if (myCap.killer) {
-      let nearest: Cap | null = null;
-      let minDist = Infinity;
-      for (const c of caps) {
-        if (c.id === myCap.id || !c.alive) continue;
-        if (data.room.teamMode && c.team === myCap.team) continue;
-        const d = Math.hypot(c.x - myCap.x, c.z - myCap.z);
-        if (d < minDist) {
-          minDist = d;
-          nearest = c;
-        }
-      }
-      if (!nearest) return;
-      tgtX = nearest.x;
-      tgtZ = nearest.z;
-    } else {
-      const t = routeTarget(myCap);
-      if (t === null) return;
-      if (t !== 13) {
-        const b = boxByNumber(t);
-        if (!b) return;
-        tgtX = b.x;
-        tgtZ = b.z;
-      }
-    }
-
-    await shoot(Math.atan2(tgtZ - myCap.z, tgtX - myCap.x), 0.015);
+    const tp = targetPointFor(myCap);
+    if (!tp) return;
+    await shoot(Math.atan2(tp.z - myCap.z, tp.x - myCap.x), 0.015);
   };
 
   const standings = useMemo(
@@ -616,13 +660,19 @@ export default function GameClient({ code }: { code: string }) {
         </div>
       )}
 
-      {/* HUD Power Meter (Left Edge) */}
+      {/* Power meter — swings on its own while you hold; release to fire. */}
       {aim && !playback && (
-        <div className="pointer-events-none absolute left-6 top-1/2 z-20 flex h-48 w-3 -translate-y-1/2 flex-col items-center justify-end overflow-hidden rounded-full border border-white/30 bg-black/50 shadow-lg">
-          <div
-            className="w-full bg-gradient-to-t from-cyan-400 via-yellow-400 to-rose-500 transition-all duration-75"
-            style={{ height: `${aim.power * 100}%` }}
-          />
+        <div className="pointer-events-none absolute left-6 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-2">
+          <div className="flex h-48 w-3 flex-col items-center justify-end overflow-hidden rounded-full border border-white/30 bg-black/50 shadow-lg">
+            <div
+              ref={meterRef}
+              className="w-full bg-gradient-to-t from-cyan-400 via-yellow-400 to-rose-500"
+              style={{ height: `${MIN_CHARGE * 100}%` }}
+            />
+          </div>
+          <span className="whitespace-nowrap rounded-full border border-white/15 bg-black/70 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-white/70 backdrop-blur">
+            Release
+          </span>
         </div>
       )}
 
@@ -801,10 +851,13 @@ export default function GameClient({ code }: { code: string }) {
             <p className="mt-3 text-[11px] font-bold uppercase tracking-widest text-cyan-300/70">Controls</p>
             <ul className="mt-1 list-disc space-y-1 pl-4">
               <li>
-                <b>Drag anywhere</b> to aim: the arrow points opposite your drag, like pulling a top back between your
-                fingers. Drag <b>further</b> for more power — the meter on the left shows it.
+                <b>Hold anywhere</b> and the power meter on the left starts swinging up and down on its own.{" "}
+                <b>Let go</b> at the strength you want — that&apos;s your shot.
               </li>
-              <li>Lift your finger to flick.</li>
+              <li>
+                You start aimed at whatever box you&apos;re chasing, so a straight hold-and-release already goes the
+                right way. <b>Drag while holding</b> to steer it somewhere else.
+              </li>
               <li>
                 <b>🤏 Tap</b> plays a 1.5% micro-nudge straight at your current target — for when you only need a hair.
               </li>
@@ -827,8 +880,10 @@ export default function GameClient({ code }: { code: string }) {
                 Nobody may strike another top until they have made <b>box 1</b> — do it early and you start all over.
               </li>
               <li className="text-rose-300">
-                Land in the 2 · 4 · 6 · 8 panels instead of 13 and you are STUCK until somebody knocks you out — and they
-                collect that many boxes for doing it.
+                End up in the 2 · 4 · 6 · 8 panels instead of 13 and you are STUCK until somebody knocks you out — and
+                they collect that many boxes for doing it. That counts whether you flicked yourself in{" "}
+                <b>or somebody knocked you in</b>: get struck cleanly into a panel — inside it, not touching a line — and
+                you&apos;re pinned there too.
               </li>
               <li>Slam the kerb and you are picked up and sent back to your line.</li>
             </ul>

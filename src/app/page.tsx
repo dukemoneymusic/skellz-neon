@@ -70,8 +70,10 @@ export default function Home() {
             <b className="text-cyan-300">Tops are locked:</b> everybody has to make box 1 before they can hit another
             top — hit one early and you start all over.
             <br />
-            <b className="text-rose-300">The middle bites:</b> land in the 2 · 4 · 6 · 8 panels instead of 13 and
-            you&apos;re stuck — whoever knocks you out advances that many boxes.
+            <b className="text-rose-300">The middle bites:</b> end up cleanly inside the 2 · 4 · 6 · 8 panels instead of
+            13 — not touching a line — and you&apos;re stuck. That goes for getting <b>knocked</b> in by somebody else
+            just as much as flicking yourself in. Whoever knocks you back out advances that many boxes, and in co-op the
+            whole team moves up with them.
             <br />
             <b className="text-fuchsia-300">Killas:</b> hitting a killa (while you aren&apos;t one) pushes you 1 box —
             it doesn&apos;t make you a killa. A killa needs 3 hits to take down a regular top.
