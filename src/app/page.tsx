@@ -70,7 +70,11 @@ export default function Home() {
             the normal 1 box.
             <br />
             <b className="text-cyan-300">Tops are locked:</b> everybody has to make box 1 before they can hit another
-            top — hit one early and you start all over.
+            top — hit one early and you start all over (killas are exempt).
+            <br />
+            <b className="text-cyan-300">Shoot again on a make or a hit:</b> you only keep the flick going if you land
+            your box or strike a top — and hitting <b>N tops in one shot moves you N boxes</b> (two tops, two boxes, and
+            so on).
             <br />
             <b className="text-rose-300">The middle bites:</b> end up cleanly inside the 2 · 4 · 6 · 8 panels instead of
             13 — not touching a line — and you&apos;re stuck. That goes for getting <b>knocked</b> in by somebody else
@@ -80,8 +84,9 @@ export default function Home() {
             <b className="text-fuchsia-300">Killas:</b> hitting a killa (while you aren&apos;t one) pushes you 1 box —
             it doesn&apos;t make you a killa. A killa needs 3 hits to take down a regular top.
             <br />
-            <b className="text-cyan-300">Co-op:</b> pick your team in the lobby and add CPUs to either side. When one
-            teammate advances, the whole team rides up to that box with them.
+            <b className="text-cyan-300">Co-op:</b> pick your team in the lobby — up to four teams, in twos, threes or
+            fours — and add CPUs to any of them. When one teammate advances, the whole team rides up to that box with
+            them.
             <br />
             <b className="text-cyan-300">No walls send you home:</b> miss the chalk or bounce off the kerb and your top
             just stays out on the lot, still live.

@@ -133,6 +133,71 @@ test("you cannot strike a top before making box 1", () => {
   );
 });
 
+/** An armed shooter that ploughs through a cluster of `n` opponent tops. */
+function multiHit(n: number) {
+  const state = newState(n + 1);
+  const shooter = state.caps[0];
+  shooter.step = 5; // armed, mid-route (not near the end so the count isn't clamped)
+  shooter.missedTarget = true; // so a stray box landing can't add its own advance
+  shooter.x = -6;
+  shooter.z = 0;
+  shooter.onBoard = true;
+
+  // A tight cluster on the shot line: a symmetric pair the flick splits (their
+  // opposite deflections cancel, keeping it centred) followed by a top dead
+  // ahead for it to plough straight into. Tests run this on the slick borough
+  // so the top keeps enough speed to reach the third after splitting the pair.
+  const spots: [number, number][] = [
+    [0, 0.9],
+    [0, -0.9],
+    [1.4, 0],
+    [2.6, 0],
+  ];
+  for (let i = 0; i < n; i++) {
+    const v = state.caps[i + 1];
+    v.step = 5;
+    v.onBoard = true;
+    v.team = i + 1; // everyone on their own team → all opponents
+    [v.x, v.z] = spots[i];
+  }
+  shooter.team = 0;
+  return { state, shooter };
+}
+
+test("hitting two tops in one shot advances two boxes", () => {
+  const { state, shooter } = multiHit(2);
+  const before = shooter.step;
+  const res = resolveShot(state, false, false, 19, shooter.id, { angle: 0, power: 0.95 });
+  const after = res.state.caps[0];
+  assert.equal(after.step - before, 2, `two tops struck should be two boxes; events: ${res.events.join(" | ")}`);
+  assert.ok(res.events.some((e) => e.includes("struck 2 tops")), "there is a two-tops event");
+});
+
+test("hitting three tops in one shot advances three boxes", () => {
+  const { state, shooter } = multiHit(3);
+  const before = shooter.step;
+  const res = resolveShot(state, false, false, 19, shooter.id, { angle: 0, power: 0.95 });
+  const after = res.state.caps[0];
+  assert.equal(after.step - before, 3, `three tops struck should be three boxes; events: ${res.events.join(" | ")}`);
+});
+
+test("you only shoot again after making your box or hitting somebody", () => {
+  // A clean miss — no box, no contact — passes the turn.
+  const miss = newState(2);
+  miss.caps[0].step = 5;
+  miss.caps[0].onBoard = true;
+  miss.caps[0].missedTarget = true;
+  miss.caps[1].x = 200; // far away, unreachable
+  miss.caps[1].z = 200;
+  const missRes = resolveShot(miss, false, false, 0, "0", { angle: Math.PI, power: 0.05 });
+  assert.equal(missRes.extraTurn, false, "a nothing shot does not grant another turn");
+
+  // A hit grants another turn.
+  const hit = multiHit(1);
+  const hitRes = resolveShot(hit.state, false, false, 0, hit.shooter.id, { angle: 0, power: 0.55 });
+  assert.equal(hitRes.extraTurn, true, "striking a top grants another turn");
+});
+
 test("landing your target first try blazes 3 boxes, after a miss only 1", () => {
   const box2 = boxByNumber(2)!;
   const build = (missed: boolean) => {

@@ -67,6 +67,16 @@ const POLL_MS = 1200;
 /** How long a CPU "thinks" before flicking, so its turn is readable. */
 const BOT_THINK_MS = 1100;
 
+/** Co-op supports up to four teams; sizes are free (teams of 2, 3 or 4). */
+const TEAM_COUNT = 4;
+const TEAM_CHIP = [
+  "border-cyan-400/50 bg-cyan-400/15 text-cyan-200",
+  "border-fuchsia-400/50 bg-fuchsia-400/15 text-fuchsia-200",
+  "border-amber-400/50 bg-amber-400/15 text-amber-200",
+  "border-emerald-400/50 bg-emerald-400/15 text-emerald-200",
+];
+const TEAM_TEXT = ["text-cyan-300/70", "text-fuchsia-300/70", "text-amber-300/70", "text-emerald-300/70"];
+
 export default function GameClient({ code }: { code: string }) {
   const [token, saveToken] = useRoomToken(code);
   const [storedName, saveName] = useStoredName();
@@ -811,17 +821,15 @@ export default function GameClient({ code }: { code: string }) {
                     {data.room.teamMode &&
                       (canMove ? (
                         <button
-                          onClick={() =>
-                            act({ action: "team", team: p.team === 0 ? 1 : 0, playerId: Number(p.id) })
-                          }
-                          className={`ml-auto rounded-lg border px-2 py-1 text-[10px] font-bold ${p.team === 0 ? "border-cyan-400/50 bg-cyan-400/15 text-cyan-200" : "border-fuchsia-400/50 bg-fuchsia-400/15 text-fuchsia-200"}`}
+                          // Cycle through up to four co-op teams, so you can
+                          // build teams of 2, 3 or 4 however you like.
+                          onClick={() => act({ action: "team", team: (p.team + 1) % TEAM_COUNT, playerId: Number(p.id) })}
+                          className={`ml-auto rounded-lg border px-2 py-1 text-[10px] font-bold ${TEAM_CHIP[p.team % TEAM_COUNT]}`}
                         >
                           Team {p.team + 1} ⇄
                         </button>
                       ) : (
-                        <span
-                          className={`ml-auto text-[10px] ${p.team === 0 ? "text-cyan-300/70" : "text-fuchsia-300/70"}`}
-                        >
+                        <span className={`ml-auto text-[10px] ${TEAM_TEXT[p.team % TEAM_COUNT]}`}>
                           Team {p.team + 1}
                         </span>
                       ))}
@@ -837,19 +845,21 @@ export default function GameClient({ code }: { code: string }) {
             {canControl &&
               data.players.length < MAX_PLAYERS &&
               (data.room.teamMode ? (
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={() => act({ action: "add_bot", team: 0 })}
-                    className="flex-1 rounded-xl border border-cyan-400/40 bg-cyan-400/10 py-2 text-sm font-bold text-cyan-200"
-                  >
-                    🤖 CPU → Team 1
-                  </button>
-                  <button
-                    onClick={() => act({ action: "add_bot", team: 1 })}
-                    className="flex-1 rounded-xl border border-fuchsia-400/40 bg-fuchsia-400/10 py-2 text-sm font-bold text-fuchsia-200"
-                  >
-                    🤖 CPU → Team 2
-                  </button>
+                <div className="mt-4">
+                  <p className="mb-2 text-center text-[10px] font-bold uppercase tracking-widest text-white/40">
+                    Add a CPU to a team
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from({ length: TEAM_COUNT }, (_, t) => (
+                      <button
+                        key={t}
+                        onClick={() => act({ action: "add_bot", team: t })}
+                        className={`min-w-[46%] flex-1 rounded-xl border py-2 text-sm font-bold ${TEAM_CHIP[t]}`}
+                      >
+                        🤖 → Team {t + 1}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 <button
@@ -1005,7 +1015,16 @@ export default function GameClient({ code }: { code: string }) {
                 moves you 1.
               </li>
               <li>
+                <b>You only shoot again if you made your box or hit somebody.</b> Land it, or strike a top — otherwise
+                the turn passes.
+              </li>
+              <li>
+                <b>Hitting tops moves you a box each:</b> clip one top in a shot and you move <b>1</b>, catch two in the
+                same flick and you move <b>2</b>, three moves <b>3</b>, and so on.
+              </li>
+              <li>
                 Nobody may strike another top until they have made <b>box 1</b> — do it early and you start all over.
+                (Killas are exempt — they can hit from the moment they break in.)
               </li>
               <li>
                 <b>The break:</b> land your very first flick from START cleanly in any middle panel (2 · 4 · 6 · 8) and
@@ -1019,9 +1038,9 @@ export default function GameClient({ code }: { code: string }) {
                 you&apos;re pinned there too.
               </li>
               <li>
-                <b className="text-cyan-300">Co-op:</b> pick your team in the lobby, stack it with CPUs if you like, and
-                whenever one teammate advances the <b>whole team rides up</b> to that box — nobody grinds forward from
-                behind.
+                <b className="text-cyan-300">Co-op:</b> pick your team in the lobby — up to <b>four teams</b>, in twos,
+                threes or fours — stack any of them with CPUs, and whenever one teammate advances the{" "}
+                <b>whole team rides up</b> to that box — nobody grinds forward from behind.
               </li>
               <li>
                 The lot is wide open: miss the chalk, or bounce off the kerb, and your top just stays out on the

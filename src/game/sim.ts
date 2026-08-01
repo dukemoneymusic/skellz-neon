@@ -412,8 +412,12 @@ export function resolveShot(
   let extraTurn = false;
   let resolvedMove = false;
   let rescueBonus = 0;
+  let boxesFromHits = 0; // one box per opponent top struck this shot
+  let didLegalHit = false; // did any legal contact happen? (grants another shot)
 
-  // ILLEGAL STRIKE: you must make box 1 before you may hit anybody's top.
+  // ILLEGAL STRIKE: you must make box 1 before you may hit ANYBODY'S top — hit
+  // one early and you start all over. Killas are always armed, so this never
+  // catches them.
   if (liveHits.length > 0 && !armed) {
     shooter.step = 0;
     shooter.missedTarget = false;
@@ -427,29 +431,38 @@ export function resolveShot(
   for (const id of liveHits) {
     const victim = caps.find((c) => c.id === id);
     if (!victim) continue;
+    if (!armed) continue; // an illegal strike is void — it frees nobody
     const friendly = teamMode && victim.team === shooter.team;
 
-    // an illegal strike (shooter hasn't made 1) is void — it frees nobody
-    if (!armed) continue;
-
-    // knocking a stuck top out of the middle
-    let didRescue = false;
+    // Knocking a stuck top out of the middle pays the panel value, and doesn't
+    // also count as a plain box-scoring strike.
     if (victim.stuck) {
       const worth = victim.stuckValue || 2;
       victim.stuck = false;
       victim.stuckValue = 0;
+      didLegalHit = true;
       if (friendly) {
         shooter.score += 10;
         events.push(`🛟 ${shooter.name} freed teammate ${victim.name} out of the ${worth} (+10)`);
       } else {
         shooter.score += 15;
         rescueBonus += worth;
-        didRescue = true;
         events.push(`🛟 ${shooter.name} knocked ${victim.name} out of the ${worth} — collect ${worth} boxes!`);
       }
+      continue;
     }
 
-    if (shooter.killer && !friendly) {
+    if (friendly) {
+      // A tap on your own team still counts as a hit (you shoot again) but
+      // earns no boxes off a teammate.
+      shooter.score += 5;
+      didLegalHit = true;
+      events.push(`🤝 ${shooter.name} nudged teammate ${victim.name}.`);
+      continue;
+    }
+
+    if (shooter.killer) {
+      didLegalHit = true;
       if (victim.onBoard && railed.has(victim.id)) {
         victim.alive = false;
         shooter.kills += 1;
@@ -467,37 +480,34 @@ export function resolveShot(
           events.push(`${shooter.name} tagged ${victim.name} (${victim.damage[shooter.id]}/${need})`);
         }
       }
-      extraTurn = true;
-    } else if (!shooter.killer && victim.killer && !friendly) {
-      // hitting a killa (while you aren't one) no longer makes you a killa —
-      // it just pushes you 1 step further along your own route, whichever
-      // direction you're currently running.
-      shooter.score += 15;
-      const dirWord = legOf(shooter.step) === "back" ? "backward" : "forward";
-      advanceBoxes(
-        state,
-        shooter,
-        1,
-        events,
-        (landed, next) => `🔥 ${shooter.name} clips a killa — pushed 1 box ${dirWord}! Now on ${landed}, next ${next}.`,
-      );
-      resolvedMove = true;
-      extraTurn = true;
-    } else if (friendly) {
-      shooter.score += 5;
-      extraTurn = true;
-    } else if (!resolvedMove && !didRescue && shooter.step < ROUTE_LEN) {
-      advanceBoxes(
-        state,
-        shooter,
-        1,
-        events,
-        (landed, nextBox) => `💥 ${shooter.name} struck a top — advances 1 box to ${landed}! (Next: ${nextBox})`,
-      );
-      resolvedMove = true;
-      extraTurn = true;
+      continue;
     }
+
+    // A regular shooter striking an opponent top (normal OR killa) advances one
+    // box PER top hit this shot: hit two tops, move two boxes, and so on.
+    shooter.score += 15;
+    boxesFromHits += 1;
+    didLegalHit = true;
   }
+
+  // Cash in the box(es) earned by striking tops this shot.
+  if (!shooter.killer && boxesFromHits > 0) {
+    advanceBoxes(
+      state,
+      shooter,
+      boxesFromHits,
+      events,
+      (landed, next, gained) =>
+        gained === 1
+          ? `💥 ${shooter.name} struck a top — advances 1 box to ${landed}! (Next: ${next})`
+          : `💥 ${shooter.name} struck ${gained} tops in one shot — advances ${gained} boxes to ${landed}! (Next: ${next})`,
+    );
+    resolvedMove = true;
+  }
+
+  // You only get to shoot again if you either landed your box or hit somebody.
+  // The make-box branches below OR in their own extra turn on a clean landing.
+  extraTurn = didLegalHit;
 
   // The lot is wide open — missing the chalk square, or even bouncing off the
   // kerb, just leaves your top out on the asphalt, still in play. Nothing here
