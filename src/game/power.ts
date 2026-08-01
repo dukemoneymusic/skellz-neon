@@ -6,8 +6,8 @@
  * so the behaviour can be tested without a browser.
  */
 
-/** One full up-and-down sweep. */
-export const POWER_CYCLE_MS = 1500;
+/** One full up-and-down sweep. Slow enough to catch the level you want. */
+export const POWER_CYCLE_MS = 1900;
 
 /** The bottom of the swing — a light touch, never a dead shot. */
 export const MIN_CHARGE = 0.04;

@@ -777,40 +777,72 @@ export default function GameClient({ code }: { code: string }) {
               {data.players.length}/{MAX_PLAYERS} players
             </p>
             <div className="mt-4 space-y-2">
-              {data.players.map((p) => (
-                <div key={p.id} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-                  <span
-                    className="h-3.5 w-3.5 shrink-0 rounded-full border border-white/30"
-                    style={{ background: `linear-gradient(90deg, ${p.color} 50%, ${p.color2} 50%)` }}
-                  />
-                  <span className="font-semibold">{p.name}</span>
-                  {p.isBot && <span className="rounded bg-white/10 px-2 text-[10px] text-white/70">CPU</span>}
-                  {p.isHost && <span className="rounded bg-cyan-400/20 px-2 text-[10px] text-cyan-300">HOST</span>}
-                  {data.room.teamMode && <span className="ml-auto text-[10px] text-white/50">Team {p.team + 1}</span>}
-                </div>
-              ))}
+              {data.players.map((p) => {
+                // You can move a row's team if it's your own seat, or if you're
+                // the host (which also covers every CPU). Tapping the chip
+                // flips it between the two co-op sides.
+                const mine = data.me && String(p.id) === data.me.id;
+                const canMove = data.room.teamMode && (mine || canControl);
+                return (
+                  <div key={p.id} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                    <span
+                      className="h-3.5 w-3.5 shrink-0 rounded-full border border-white/30"
+                      style={{ background: `linear-gradient(90deg, ${p.color} 50%, ${p.color2} 50%)` }}
+                    />
+                    <span className="font-semibold">{p.name}</span>
+                    {p.isBot && <span className="rounded bg-white/10 px-2 text-[10px] text-white/70">CPU</span>}
+                    {p.isHost && <span className="rounded bg-cyan-400/20 px-2 text-[10px] text-cyan-300">HOST</span>}
+                    {data.room.teamMode &&
+                      (canMove ? (
+                        <button
+                          onClick={() =>
+                            act({ action: "team", team: p.team === 0 ? 1 : 0, playerId: Number(p.id) })
+                          }
+                          className={`ml-auto rounded-lg border px-2 py-1 text-[10px] font-bold ${p.team === 0 ? "border-cyan-400/50 bg-cyan-400/15 text-cyan-200" : "border-fuchsia-400/50 bg-fuchsia-400/15 text-fuchsia-200"}`}
+                        >
+                          Team {p.team + 1} ⇄
+                        </button>
+                      ) : (
+                        <span
+                          className={`ml-auto text-[10px] ${p.team === 0 ? "text-cyan-300/70" : "text-fuchsia-300/70"}`}
+                        >
+                          Team {p.team + 1}
+                        </span>
+                      ))}
+                  </div>
+                );
+              })}
             </div>
             {data.room.teamMode && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {[0, 1, 2, 3].map((t) => (
+              <p className="mt-3 text-center text-[11px] text-white/45">
+                Tap a Team chip to switch sides{canControl ? " — as host you can move anyone, CPUs included" : ""}.
+              </p>
+            )}
+            {canControl &&
+              data.players.length < MAX_PLAYERS &&
+              (data.room.teamMode ? (
+                <div className="mt-4 flex gap-2">
                   <button
-                    key={t}
-                    onClick={() => act({ action: "team", team: t })}
-                    className={`min-w-[30%] flex-1 rounded-xl border px-3 py-2 text-sm font-bold ${data.me?.team === t ? "border-cyan-400 bg-cyan-400/20" : "border-white/15"}`}
+                    onClick={() => act({ action: "add_bot", team: 0 })}
+                    className="flex-1 rounded-xl border border-cyan-400/40 bg-cyan-400/10 py-2 text-sm font-bold text-cyan-200"
                   >
-                    Team {t + 1}
+                    🤖 CPU → Team 1
                   </button>
-                ))}
-              </div>
-            )}
-            {canControl && data.players.length < MAX_PLAYERS && (
-              <button
-                onClick={() => act({ action: "add_bot" })}
-                className="mt-4 w-full rounded-xl border border-white/20 bg-white/5 py-2 text-sm font-bold text-white/80"
-              >
-                🤖 Add CPU Bot
-              </button>
-            )}
+                  <button
+                    onClick={() => act({ action: "add_bot", team: 1 })}
+                    className="flex-1 rounded-xl border border-fuchsia-400/40 bg-fuchsia-400/10 py-2 text-sm font-bold text-fuchsia-200"
+                  >
+                    🤖 CPU → Team 2
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => act({ action: "add_bot" })}
+                  className="mt-4 w-full rounded-xl border border-white/20 bg-white/5 py-2 text-sm font-bold text-white/80"
+                >
+                  🤖 Add CPU Bot
+                </button>
+              ))}
             {canControl ? (
               <button
                 onClick={() => act({ action: "start" })}
@@ -949,13 +981,26 @@ export default function GameClient({ code }: { code: string }) {
               <li>
                 Nobody may strike another top until they have made <b>box 1</b> — do it early and you start all over.
               </li>
+              <li>
+                <b>The break:</b> land your very first flick from START cleanly in any middle panel (2 · 4 · 6 · 8) and
+                you start your run from <b>box 3</b>. Drill dead-centre on 13 instead and you skip straight to the
+                backward pass.
+              </li>
               <li className="text-rose-300">
                 End up in the 2 · 4 · 6 · 8 panels instead of 13 and you are STUCK until somebody knocks you out — and
                 they collect that many boxes for doing it. That counts whether you flicked yourself in{" "}
                 <b>or somebody knocked you in</b>: get struck cleanly into a panel — inside it, not touching a line — and
                 you&apos;re pinned there too.
               </li>
-              <li>Slam the kerb and you are picked up and sent back to your line.</li>
+              <li>
+                <b className="text-cyan-300">Co-op:</b> pick your team in the lobby, stack it with CPUs if you like, and
+                whenever one teammate advances the <b>whole team rides up</b> to that box — nobody grinds forward from
+                behind.
+              </li>
+              <li>
+                The lot is wide open: miss the chalk, or bounce off the kerb, and your top just stays out on the
+                asphalt — still live. Nothing sends you back to START.
+              </li>
             </ul>
             <button onClick={() => setShowRules(false)} className="mt-5 w-full rounded-xl bg-cyan-400 py-2 font-bold text-black">
               Got it

@@ -38,6 +38,7 @@ type Body = {
   name?: string;
   token?: string;
   team?: number;
+  playerId?: number;
   color?: string;
   color2?: string;
   angle?: number;
@@ -271,12 +272,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
       if (roster.length >= MAX_PLAYERS)
         return NextResponse.json({ error: `Room is full (${MAX_PLAYERS} max)` }, { status: 400 });
       const slot = roster.length;
-      // Drop the CPU into whichever team is short-handed rather than always
-      // team 2, which used to make every co-op match lopsided.
+      // In team mode the host can name the CPU's team (used by the per-team
+      // "Add bot" buttons); otherwise drop it on whichever side is
+      // short-handed, so a plain "Add CPU" never makes a lopsided match.
       let team = 0;
       if (room.teamMode) {
-        const counts = [0, 1].map((t) => roster.filter((p) => p.team === t).length);
-        team = counts[0] <= counts[1] ? 0 : 1;
+        if (typeof body.team === "number") {
+          team = Math.max(0, Math.min(7, body.team));
+        } else {
+          const counts = [0, 1].map((t) => roster.filter((p) => p.team === t).length);
+          team = counts[0] <= counts[1] ? 0 : 1;
+        }
       }
       addPlayer({
         roomId: room.id,
@@ -293,7 +299,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     }
 
     if (body.action === "team") {
-      updatePlayer(me, { team: Math.max(0, Math.min(7, body.team || 0)) });
+      const team = Math.max(0, Math.min(7, body.team || 0));
+      // You always set your own team. The host can also reassign anyone else —
+      // including CPUs, which have no client of their own — by passing that
+      // player's id, so a bot can be moved onto whichever team you want.
+      if (typeof body.playerId === "number" && body.playerId !== me.id) {
+        if (!isController) return NextResponse.json({ error: "Only the host can move others" }, { status: 403 });
+        const target = roster.find((p) => p.id === body.playerId);
+        if (!target) return NextResponse.json({ error: "No such player" }, { status: 404 });
+        updatePlayer(target, { team });
+      } else {
+        updatePlayer(me, { team });
+      }
       return NextResponse.json({ ok: true });
     }
 

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BOXES, LEVELS, ROUTE, boxByNumber, panelValueAt } from "../src/game/board";
+import { BOXES, LEVELS, RAIL, ROUTE, boxByNumber, panelValueAt } from "../src/game/board";
 import { computeBotShot } from "../src/game/bot";
 import { MIN_CHARGE, POWER_CYCLE_MS, powerAt } from "../src/game/power";
-import { makeCap, resolveShot, type Cap, type GameState } from "../src/game/sim";
+import { makeCap, resolveShot, startPositionFor, type Cap, type GameState } from "../src/game/sim";
 
 /** Deterministic RNG so a failing test can always be reproduced. */
 function seeded(seed: number) {
@@ -85,27 +85,35 @@ test("bot output is always finite, whatever the board looks like", () => {
   }
 });
 
-test("breaking into a middle panel starts your run from that very number", () => {
-  // Park a cap in the 4 panel and give it the gentlest possible flick sideways
-  // so it stays inside the panel. It should come out of the break sitting on
-  // box 4 with box 5 as its next target.
-  const state = newState(2);
-  const cap = state.caps[0];
-  cap.x = 5.8;
-  cap.z = 0;
-  cap.onBoard = true;
-  state.caps[1].x = -120;
-  state.caps[1].z = -120;
-  assert.equal(panelValueAt(cap.x, cap.z), 4, "fixture must actually sit in the 4 panel");
+test("breaking into any middle panel starts your run from box 3", () => {
+  // Whichever of the 2·4·6·8 you break into, you come out sitting on box 3
+  // with box 4 as your next target.
+  const box3 = boxByNumber(3)!;
+  for (const [x, z, panel] of [
+    [0, -5.8, 2],
+    [5.8, 0, 4],
+    [0, 5.8, 6],
+    [-5.8, 0, 8],
+  ] as Array<[number, number, number]>) {
+    const state = newState(2);
+    const cap = state.caps[0];
+    cap.x = x;
+    cap.z = z;
+    cap.onBoard = true;
+    state.caps[1].x = -120;
+    state.caps[1].z = -120;
+    assert.equal(panelValueAt(cap.x, cap.z), panel, `fixture must sit in the ${panel} panel`);
 
-  const res = resolveShot(state, false, false, 0, cap.id, { angle: Math.PI / 2, power: 0.01 });
-  const after = res.state.caps[0];
-  const box4 = boxByNumber(4)!;
+    // A dead-still "flick" (angle away from the board, ~zero power) leaves the
+    // cap where it is, so the break rule reads the panel it's parked in.
+    const res = resolveShot(state, false, false, 0, cap.id, { angle: Math.atan2(z, x), power: 0.01 });
+    const after = res.state.caps[0];
 
-  assert.equal(after.step, 5, "step should be 5 — box 4 made, box 5 next");
-  assert.equal(ROUTE[after.step], 5);
-  assert.equal(after.x, box4.x);
-  assert.equal(after.z, box4.z);
+    assert.equal(after.step, 4, `${panel}: step should be 4 — box 3 made, box 4 next`);
+    assert.equal(ROUTE[after.step], 4);
+    assert.equal(after.x, box3.x);
+    assert.equal(after.z, box3.z);
+  }
 });
 
 test("you cannot strike a top before making box 1", () => {
@@ -261,6 +269,64 @@ test("the opening borough is Da Commons", () => {
   assert.equal(LEVELS[0].name, "Da Commons");
   // This is the string the chalk decal paints along the edge of the board.
   assert.equal(`SKELLZ - ${LEVELS[0].name.toUpperCase()}`, "SKELLZ - DA COMMONS");
+});
+
+test("hitting the outer wall no longer sends you back to START", () => {
+  const state = newState(2);
+  const shooter = state.caps[0];
+  shooter.step = 4;
+  shooter.onBoard = true;
+  // Sit just inside the left kerb and fire hard into it.
+  shooter.x = RAIL.xMin + 2;
+  shooter.z = 0;
+  state.caps[1].x = 80;
+  state.caps[1].z = 80;
+
+  const startX = startPositionFor(0).x;
+  const res = resolveShot(state, false, false, 0, shooter.id, { angle: Math.PI, power: 1 });
+  const after = res.state.caps[0];
+
+  // It bounced off the kerb but is still out on the lot, not parked back on the
+  // START line, and it kept its progress.
+  assert.equal(after.step, 4, "progress is preserved");
+  assert.equal(after.onBoard, true, "still live on the board");
+  assert.ok(Math.abs(after.x - startX) > 5, `should NOT be back at START (x=${after.x.toFixed(1)})`);
+  assert.ok(
+    !res.events.some((e) => e.includes("back to START")),
+    `no send-home event; got: ${res.events.join(" | ")}`,
+  );
+});
+
+test("in team mode a teammate is carried up to the leader's box", () => {
+  const state = newState(2);
+  const a = state.caps[0];
+  const b = state.caps[1];
+  a.team = 0;
+  b.team = 0; // same team
+
+  // A is parked way back near START; B is the one who just made a box.
+  a.step = 2;
+  a.onBoard = true;
+  a.x = startPositionFor(0).x;
+  a.z = startPositionFor(0).z;
+
+  // Put B just short of box 5 and tap it in, so B advances and drags A along.
+  b.step = 5; // targeting box 5
+  b.onBoard = true;
+  const box5 = boxByNumber(5)!;
+  b.x = box5.x - 3;
+  b.z = box5.z;
+
+  const res = resolveShot(state, true, false, 0, b.id, { angle: 0, power: 0.032 });
+  const afterA = res.state.caps.find((c) => c.id === a.id)!;
+  const afterB = res.state.caps.find((c) => c.id === b.id)!;
+
+  assert.equal(afterA.step, afterB.step, "the whole team shares the leader's step");
+  // A must be physically relocated onto its new box — not left back at START.
+  const landed = ROUTE[afterA.step - 1];
+  const box = boxByNumber(landed)!;
+  assert.ok(Math.abs(afterA.x - box.x) < 0.001 && Math.abs(afterA.z - box.z) < 0.001, "A rode up onto its new box");
+  assert.ok(Math.abs(afterA.x - startPositionFor(0).x) > 5, "A is no longer back at START");
 });
 
 test("every numbered box is reachable and unique", () => {

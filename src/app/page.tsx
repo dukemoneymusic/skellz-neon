@@ -59,9 +59,9 @@ export default function Home() {
           <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-3 text-[12px] leading-relaxed text-white/70">
             <b className="text-cyan-300">The route:</b> break from START → hit the MIDDLE → run 1 to 13 → run it
             backwards 13 to 1 → back to the MIDDLE and you&apos;re a <b className="text-fuchsia-300">KILLA ☠</b>. Land
-            on a middle number (2·4·6·8) on your first break and you start your run from that very number; miss and
-            next time any middle number just moves you forward to box 1. Land dead-center on 13 and you skip straight
-            to the backward pass.
+            in any middle number (2·4·6·8) on your first break and you start your run from box 3; miss and next time any
+            middle number just moves you forward to box 1. Land dead-center on 13 and you skip straight to the backward
+            pass.
             <br />
             <b className="text-cyan-300">Clean landings blaze forward 3:</b> hit your own target box on your{" "}
             <b>first try</b> and you jump 3 boxes ahead automatically — but miss it once and a later hit only moves you
@@ -77,6 +77,12 @@ export default function Home() {
             <br />
             <b className="text-fuchsia-300">Killas:</b> hitting a killa (while you aren&apos;t one) pushes you 1 box —
             it doesn&apos;t make you a killa. A killa needs 3 hits to take down a regular top.
+            <br />
+            <b className="text-cyan-300">Co-op:</b> pick your team in the lobby and add CPUs to either side. When one
+            teammate advances, the whole team rides up to that box with them.
+            <br />
+            <b className="text-cyan-300">No walls send you home:</b> miss the chalk or bounce off the kerb and your top
+            just stays out on the lot, still live.
           </div>
         </div>
 

@@ -5,7 +5,7 @@ export const BOARD_HALF = 36.0; // enormous 72 x 72 square — boxes sit far apa
 export const BOX = 4.8; // the 12 numbered boxes
 export const CAP_R = 0.6; // milk top radius
 export const OUT_LIMIT = BOARD_HALF + 0.4; // outside the chalk square
-export const CENTER_HALF = 9.2; // outer square of the skull
+export const CENTER_HALF = 8.1; // outer square of the skull — the 2·4·6·8 ring (tightened from 9.2)
 
 /** Most caps a single room can hold — lanes are drawn with this many slots. */
 export const MAX_PLAYERS = 8;
@@ -15,9 +15,9 @@ export const MAX_PLAYERS = 8;
 // KILLA line sits much further out on a diagonal so killas attack from a
 // completely different angle.
 export const START_ANGLE = Math.PI; // due west
-export const START_DIST = BOARD_HALF + 20;
+export const START_DIST = BOARD_HALF + 32;
 export const KILLA_ANGLE = Math.PI * 1.25; // north-west diagonal
-export const KILLA_DIST = BOARD_HALF + 46;
+export const KILLA_DIST = BOARD_HALF + 58;
 export const LANE_LEN = 9.6; // long enough to seat all MAX_PLAYERS without overlap
 
 export const START_LINE = {

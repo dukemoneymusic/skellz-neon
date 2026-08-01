@@ -5,7 +5,6 @@ import {
   FINAL_STEP,
   OUT_LIMIT,
   RAIL,
-  atEdge,
   ROUTE,
   ROUTE_LEN,
   boxByNumber,
@@ -500,27 +499,16 @@ export function resolveShot(
     }
   }
 
-  // The lot is wide open — missing the chalk square just leaves your top out
-  // on the asphalt, still in play. Only the kerb sends you home.
+  // The lot is wide open — missing the chalk square, or even bouncing off the
+  // kerb, just leaves your top out on the asphalt, still in play. Nothing here
+  // sends you home any more; only the rules below relocate a cap.
   for (const c of caps) {
     if (!c.alive) continue;
-    if (railed.has(c.id) || atEdge(c.x, c.z)) {
-      const wasShooter = c.id === shooter.id;
-      const home = c.killer ? "the killa line" : "START";
-      sendHome(state, c);
-      c.score = Math.max(0, c.score - 5);
-      if (wasShooter) {
-        events.push(`🧱 ${shooter.name} slammed the edge — picked up, back to ${home}.`);
-        extraTurn = false;
-        resolvedMove = true;
-      } else {
-        events.push(`🧱 ${c.name} was rammed into the edge — back to ${home}.`);
-      }
-    } else {
-      c.onBoard = true;
-      if (c.id === shooter.id && !resolvedMove && outside(c)) {
-        events.push(`🛞 ${shooter.name} rolled off the chalk — still live out on the lot.`);
-      }
+    c.onBoard = true;
+    if (c.id === shooter.id && railed.has(c.id) && !resolvedMove) {
+      events.push(`🧱 ${shooter.name} caught the kerb — still live out on the lot.`);
+    } else if (c.id === shooter.id && !resolvedMove && outside(c)) {
+      events.push(`🛞 ${shooter.name} rolled off the chalk — still live out on the lot.`);
     }
   }
 
@@ -575,11 +563,11 @@ export function resolveShot(
         const panel = panelValueAt(shooter.x, shooter.z);
         if (panel > 0) {
           if (!shooter.triedBreak) {
-            // First break attempt: landing in a middle number lets you start
-            // your run FROM that exact number, moving forward from there.
-            // (step = n + 1 means "box n is made, next target is n + 1".)
-            const box = boxByNumber(panel);
-            shooter.step = panel + 1;
+            // First break attempt: landing in ANY middle number (2·4·6·8)
+            // starts your run from box 3, moving forward from there.
+            // (step 4 means "box 3 is made, next target is box 4".)
+            const box = boxByNumber(3);
+            shooter.step = 4;
             if (box) {
               shooter.x = box.x;
               shooter.z = box.z;
@@ -590,7 +578,7 @@ export function resolveShot(
             shooter.missedTarget = false;
             shooter.score += 15;
             events.push(
-              `🎯 ${shooter.name} breaks into the ${panel} — starts the run from box ${panel}, moving FORWARD (next: ${ROUTE[shooter.step]})!`,
+              `🎯 ${shooter.name} breaks into the ${panel} — starts the run from box 3, moving FORWARD (next: ${ROUTE[shooter.step]})!`,
             );
           } else {
             // Already missed the break once — now ANY middle number just
@@ -714,18 +702,19 @@ export function resolveShot(
     extraTurn = true;
   }
 
-  // Team synchronization: when a teammate advances, the entire team follows
+  // Team synchronization: when a teammate advances, the whole team advances
+  // with them — and is physically carried up to the same box, so nobody has to
+  // grind their own top forward from behind. Everyone shoots from the front.
   if (teamMode) {
     const teams = [...new Set(state.caps.map((c) => c.team))];
     for (const t of teams) {
       const teamCaps = state.caps.filter((c) => c.team === t && c.alive);
       if (teamCaps.length === 0) continue;
 
-      // Find the highest progression in the team
+      // Find the furthest-along member of the team.
       const isKiller = teamCaps.some((c) => c.killer);
       const maxStep = Math.max(...teamCaps.map((c) => c.step));
 
-      // Sync all team members to this max state
       teamCaps.forEach((c) => {
         if (isKiller && !c.killer) {
           becomeKilla(state, c, events);
@@ -735,7 +724,16 @@ export function resolveShot(
           c.stuck = false;
           c.stuckValue = 0;
           c.missedTarget = false;
-          events.push(`🤝 ${c.name} advances to step ${maxStep} with their team!`);
+          // Carry the top up to the box its new step sits on, so the player
+          // takes their next shot from there rather than from way back.
+          const landed = ROUTE[c.step - 1];
+          const box = landed !== undefined ? boxByNumber(landed) : undefined;
+          if (box) {
+            c.x = box.x;
+            c.z = box.z;
+            c.onBoard = true;
+          }
+          events.push(`🤝 ${c.name} rides up to box ${ROUTE[c.step]} with their team!`);
         }
       });
     }
