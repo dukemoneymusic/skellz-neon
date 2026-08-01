@@ -60,9 +60,10 @@ export default function Home() {
           </p>
           <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-3 text-[12px] leading-relaxed text-white/70">
             <b className="text-cyan-300">The route:</b> break from START → hit the MIDDLE → run 1 to 13 → run it
-            backwards 13 to 1 → back to the MIDDLE and you&apos;re a <b className="text-fuchsia-300">KILLA ☠</b>. Land
-            in any middle number (2·4·6·8) on your first break and you start your run from box 3; miss and next time any
-            middle number just moves you forward to box 1. Land dead-center on 13 and you skip straight to the backward
+            backwards 13 to 1 → back to the MIDDLE (dead-center 13 <b>or any 2·4·6·8 panel</b>) and you&apos;re a{" "}
+            <b className="text-fuchsia-300">KILLA ☠</b>. Land in any middle number (2·4·6·8) on your first break and you
+            start your run from box 3; miss and next time any middle number just moves you forward to box 1. Land
+            dead-center on 13 and you skip straight to the backward
             pass.
             <br />
             <b className="text-cyan-300">Clean landings blaze forward 3:</b> hit your own target box on your{" "}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BOXES, LEVELS, RAIL, ROUTE, boxByNumber, insideBox, panelValueAt } from "../src/game/board";
+import { BOXES, FINAL_STEP, LEVELS, RAIL, ROUTE, boxByNumber, insideBox, panelValueAt } from "../src/game/board";
 import { computeBotShot } from "../src/game/bot";
 import { MIN_CHARGE, POWER_CYCLE_MS, powerAt } from "../src/game/power";
 import { makeCap, resolveShot, startPositionFor, type Cap, type GameState } from "../src/game/sim";
@@ -196,6 +196,66 @@ test("you only shoot again after making your box or hitting somebody", () => {
   const hit = multiHit(1);
   const hitRes = resolveShot(hit.state, false, false, 0, hit.shooter.id, { angle: 0, power: 0.55 });
   assert.equal(hitRes.extraTurn, true, "striking a top grants another turn");
+});
+
+test("after the backward run, landing in any middle panel makes you a killa", () => {
+  const state = newState(2);
+  const cap = state.caps[0];
+  cap.step = FINAL_STEP; // reached box 1 on the way back; the last flick is for the middle
+  cap.onBoard = true;
+  cap.x = 5.8; // sitting in the 4 panel
+  cap.z = 0;
+  state.caps[1].x = -120;
+  state.caps[1].z = -120;
+  assert.equal(panelValueAt(cap.x, cap.z), 4, "fixture must sit in the 4 panel");
+
+  // A whisper of a tap that keeps it inside the panel.
+  const res = resolveShot(state, false, false, 0, cap.id, { angle: Math.PI / 2, power: 0.008 });
+  const after = res.state.caps[0];
+  assert.equal(after.killer, true, `a panel finish should crown a killa; events: ${res.events.join(" | ")}`);
+  assert.equal(after.stuck, false, "and it must NOT be treated as getting stuck");
+});
+
+test("dead-centre 13 after the run still makes you a killa", () => {
+  const state = newState(2);
+  const cap = state.caps[0];
+  cap.step = FINAL_STEP;
+  cap.onBoard = true;
+  cap.x = -1.4; // just short of centre so a nudge lands in 13
+  cap.z = 0;
+  state.caps[1].x = -120;
+  state.caps[1].z = -120;
+
+  const res = resolveShot(state, false, false, 0, cap.id, { angle: 0, power: 0.02 });
+  assert.equal(res.state.caps[0].killer, true, `13 finish should crown a killa; events: ${res.events.join(" | ")}`);
+});
+
+test("hitting your own teammate is not a hit — no boxes, no extra shot", () => {
+  const state = newState(2);
+  const shooter = state.caps[0];
+  const mate = state.caps[1];
+  // Same team, both armed and mid-route.
+  shooter.team = 0;
+  mate.team = 0;
+  shooter.step = 5;
+  mate.step = 5;
+  shooter.onBoard = true;
+  mate.onBoard = true;
+  shooter.missedTarget = true;
+  shooter.x = -3;
+  shooter.z = 0;
+  mate.x = 0.5;
+  mate.z = 0;
+  const before = shooter.step;
+
+  const res = resolveShot(state, /* teamMode */ true, false, 0, shooter.id, { angle: 0, power: 0.4 });
+  const after = res.state.caps[0];
+  assert.equal(res.extraTurn, false, "friendly fire must not grant another shot");
+  assert.equal(after.step, before, "friendly fire earns no boxes");
+  assert.ok(
+    res.events.some((e) => e.includes("teammate")),
+    `expected a teammate event; got: ${res.events.join(" | ")}`,
+  );
 });
 
 test("landing your target first try blazes 3 boxes, after a miss only 1", () => {

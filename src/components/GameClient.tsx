@@ -1004,8 +1004,9 @@ export default function GameClient({ code }: { code: string }) {
             <p className="mt-4 text-[11px] font-bold uppercase tracking-widest text-cyan-300/70">The route</p>
             <ul className="mt-1 list-disc space-y-1 pl-4">
               <li>
-                Break from START into the MIDDLE (13), run <b>1 → 13</b>, run it back <b>13 → 1</b>, then the middle once
-                more and you&apos;re a <b className="text-fuchsia-300">KILLA ☠</b>.
+                Break from START into the MIDDLE (13), run <b>1 → 13</b>, run it back <b>13 → 1</b>, then flick into the
+                middle one more time — <b>dead-centre 13 or any 2·4·6·8 panel</b> — and you&apos;re a{" "}
+                <b className="text-fuchsia-300">KILLA ☠</b>.
               </li>
               <li>
                 A cap must be <b>fully inside the box</b> to count. Touch the chalk and it is a miss.

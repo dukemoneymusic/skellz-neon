@@ -440,24 +440,24 @@ export function resolveShot(
       const worth = victim.stuckValue || 2;
       victim.stuck = false;
       victim.stuckValue = 0;
-      didLegalHit = true;
       if (friendly) {
+        // Freeing a teammate helps them, but touching your own team is never
+        // a hit — you don't earn another shot for it, the turn passes.
         shooter.score += 10;
-        events.push(`🛟 ${shooter.name} freed teammate ${victim.name} out of the ${worth} (+10)`);
+        events.push(`🛟 ${shooter.name} freed teammate ${victim.name} out of the ${worth} (+10) — turn passes.`);
       } else {
         shooter.score += 15;
         rescueBonus += worth;
+        didLegalHit = true;
         events.push(`🛟 ${shooter.name} knocked ${victim.name} out of the ${worth} — collect ${worth} boxes!`);
       }
       continue;
     }
 
     if (friendly) {
-      // A tap on your own team still counts as a hit (you shoot again) but
-      // earns no boxes off a teammate.
-      shooter.score += 5;
-      didLegalHit = true;
-      events.push(`🤝 ${shooter.name} nudged teammate ${victim.name}.`);
+      // Tapping your own team is NOT a hit: no boxes, and no extra shot. The
+      // turn passes exactly as if you'd missed.
+      events.push(`🤝 ${shooter.name} tapped teammate ${victim.name} — no shot again.`);
       continue;
     }
 
@@ -617,22 +617,26 @@ export function resolveShot(
         }
         // otherwise: already knew the rule and missed again — turn just passes.
       }
-    } else if (insideBox(target, shooter.x, shooter.z) && target === 13) {
-      // ---------------- LANDING ON 13 MID-ROUTE ----------------
-      if (shooter.step === FINAL_STEP) {
-        // final 13 — becomes a killa
+    } else if (shooter.step === FINAL_STEP) {
+      // ---------------- THE FINAL MIDDLE — become a KILLA ----------------
+      // After the backward run has brought you to box 1, hitting the middle at
+      // all finishes it: dead-centre 13 OR any of the 2·4·6·8 panels makes you
+      // a killa. (Only here does a panel help — everywhere else it traps you.)
+      if (insideBox(13, shooter.x, shooter.z) || panelValueAt(shooter.x, shooter.z) > 0) {
         shooter.score += 40;
-        events.push(`🏆 ${shooter.name} drills the middle again — "I'M A KILLA!"`);
+        events.push(`🏆 ${shooter.name} hits the middle after the run — "I'M A KILLA!"`);
         becomeKilla(state, shooter, events);
-      } else {
-        // step === 13 — topped out, ascending run complete
-        shooter.step += 1;
-        shooter.stuck = false;
-        shooter.stuckValue = 0;
-        shooter.missedTarget = false;
-        shooter.score += 15;
-        events.push(`🎯 ${shooter.name} topped out at 13 — now back down 12 → 1!`);
+        extraTurn = true;
       }
+      // otherwise you missed the middle entirely — the turn just passes.
+    } else if (insideBox(target, shooter.x, shooter.z) && target === 13) {
+      // ---------------- TOPPING OUT AT 13 (ascending run complete) ----------------
+      shooter.step += 1;
+      shooter.stuck = false;
+      shooter.stuckValue = 0;
+      shooter.missedTarget = false;
+      shooter.score += 15;
+      events.push(`🎯 ${shooter.name} topped out at 13 — now back down 12 → 1!`);
       extraTurn = true;
     } else if (insideBox(target, shooter.x, shooter.z)) {
       // ---------------- CLEAN LANDING ON YOUR OWN TARGET (not 13) ----------------
