@@ -1,4 +1,5 @@
 import type { GameState } from "@/game/sim";
+import { size as leaderboardSize } from "@/server/leaderboard";
 
 /**
  * In-process game store.
@@ -56,22 +57,12 @@ export type Player = {
   createdAt: number;
 };
 
-export type LeaderboardRow = {
-  id: number;
-  name: string;
-  players: number;
-  score: number;
-  createdAt: number;
-};
-
 type Store = {
   rooms: Map<string, Room>;
   players: Map<number, Player>;
-  leaderboard: LeaderboardRow[];
   locks: Map<string, Promise<unknown>>;
   nextRoomId: number;
   nextPlayerId: number;
-  nextLeaderboardId: number;
 };
 
 /** Rooms nobody has touched for this long are swept away. */
@@ -87,11 +78,9 @@ const store: Store =
   (globalForStore.__skellzStore = {
     rooms: new Map(),
     players: new Map(),
-    leaderboard: [],
     locks: new Map(),
     nextRoomId: 1,
     nextPlayerId: 1,
-    nextLeaderboardId: 1,
   });
 
 function sweep() {
@@ -216,19 +205,8 @@ export function updatePlayer(player: Player, patch: Partial<Player>): Player {
   return player;
 }
 
-export function addLeaderboardRow(row: Omit<LeaderboardRow, "id" | "createdAt">): LeaderboardRow {
-  const entry: LeaderboardRow = { ...row, id: store.nextLeaderboardId++, createdAt: Date.now() };
-  store.leaderboard.push(entry);
-  return entry;
-}
-
-/** Fewest shots wins, so the leaderboard sorts ascending. */
-export function topLeaderboard(limit = 10): LeaderboardRow[] {
-  return [...store.leaderboard].sort((a, b) => a.score - b.score).slice(0, limit);
-}
-
 export function stats() {
-  return { rooms: store.rooms.size, players: store.players.size, leaderboard: store.leaderboard.length };
+  return { rooms: store.rooms.size, players: store.players.size, leaderboard: leaderboardSize() };
 }
 
 /**

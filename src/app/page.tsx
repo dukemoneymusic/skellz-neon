@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import InstallCard from "@/components/InstallCard";
+import Leaderboard from "@/components/Leaderboard";
 import { LEVELS, MAX_PLAYERS } from "@/game/board";
 import { usePageUrl, useStoredName } from "@/game/session";
 
@@ -15,6 +16,7 @@ export default function Home() {
   const [teamMode, setTeamMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showBoard, setShowBoard] = useState(false);
   // Read through an external store rather than during render — reading
   // `window` inline made the server and client emit different QR images and
   // tripped a hydration mismatch.
@@ -152,6 +154,13 @@ export default function Home() {
           </div>
         </div>
 
+        <button
+          onClick={() => setShowBoard(true)}
+          className="rounded-2xl border border-fuchsia-400/25 bg-fuchsia-400/5 py-3 text-sm font-black uppercase tracking-wider text-fuchsia-300"
+        >
+          🏆 Leaderboard
+        </button>
+
         {/* Global persistent links */}
         <div className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
           <label className="text-xs uppercase tracking-widest text-white/50">Global Matchmaking</label>
@@ -184,6 +193,7 @@ export default function Home() {
           A game made by <span className="text-cyan-300/60">DUKE$</span>
         </p>
       </div>
+      {showBoard && <Leaderboard onClose={() => setShowBoard(false)} highlight={name ? [name] : []} />}
     </main>
   );
 }

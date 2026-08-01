@@ -169,7 +169,37 @@ only thing between a hostile payload and the game state. A 4-character room code
 is not a security boundary — the goal is that a bad snapshot can at worst spoil
 one throwaway game, never crash the server.
 
-It must still run as a **single instance**. Render's free plan
+It must still run as a **single instance**.
+
+## Leaderboard
+
+A global, name-keyed leaderboard (`src/server/leaderboard.ts`, shown via
+`src/components/Leaderboard.tsx`). Every finished game is folded in: plays, PvP
+wins (the whole surviving team in co-op), best single-match score, and the
+fewest shots to clear the full story campaign. Ranked by wins, then best score,
+then best story run. Open it from the home page or the end-of-match screen.
+
+Names are what people type — not authenticated — so two people using "Duke"
+share a row. For a share-a-link street game that is the intended, friction-free
+model.
+
+**Durability:** unlike rooms, the board is meant to last, so it is written to a
+JSON file (`.data/leaderboard.json`) and read back on boot. On a stable disk it
+simply persists. On Render's free plan the filesystem is wiped on each deploy —
+but this service keeps itself awake, so in practice the board survives until the
+next deploy. If the disk is read-only the writes fail silently and it runs from
+memory. For a board that survives deploys, point `LEADERBOARD_FILE` at a mounted
+persistent disk (Render paid) or swap the module for a KV store.
+
+## Performance notes
+
+- The 1.2s poll only commits state (and re-renders the 3D scene) when something
+  the UI shows has actually changed — an idle table no longer re-renders four
+  times a second. The change signature covers the roster, not just `seq`,
+  because several lobby actions (join, team, add-bot) don't bump `seq`.
+- The renderer caps device-pixel-ratio at 1.5 and uses a 1024 shadow map — at
+  this camera distance both are indistinguishable from full quality and far
+  cheaper on phones, which is where the jank was. Render's free plan
 is always one instance so nothing is pinned in `render.yaml`, but if you move to
 a paid plan, do not scale past 1 — players would be routed to instances that
 have never heard of their room. To scale horizontally, move that module to Redis

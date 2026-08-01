@@ -705,11 +705,20 @@ export default function Scene({
   const focus = caps.find((c) => c.id === turnId);
   const followRef = useRef<{ x: number; z: number }>({ x: focus?.x ?? 0, z: focus?.z ?? 0 });
   return (
-    <Canvas shadows dpr={[1, 2]} camera={{ position: [ASPHALT_CX, 230, 260], fov: 45, near: 0.4, far: 5000 }}>
+    <Canvas
+      shadows
+      // Cap the pixel ratio at 1.5: a 3x retina phone rendering this whole lot
+      // at native resolution was the main source of jank, and at this camera
+      // distance 1.5x is indistinguishable. A 1024 shadow map is likewise
+      // plenty for a top-down board and a quarter the fill cost of 2048.
+      dpr={[1, 1.5]}
+      camera={{ position: [ASPHALT_CX, 230, 260], fov: 45, near: 0.4, far: 5000 }}
+      gl={{ powerPreference: "high-performance", antialias: true }}
+    >
       <color attach="background" args={["#04060c"]} />
       <fog attach="fog" args={["#04060c", 380, 1000]} />
       <ambientLight intensity={0.95} />
-      <directionalLight position={[66, 210, 66]} intensity={1.85} castShadow shadow-mapSize={[2048, 2048]} />
+      <directionalLight position={[66, 210, 66]} intensity={1.85} castShadow shadow-mapSize={[1024, 1024]} />
       <pointLight position={[0, 42, 0]} intensity={16000} color="#ff4d7d" distance={220} />
       <pointLight position={[-66, 45, -66]} intensity={28000} color="#38f5ff" distance={380} />
       <pointLight position={[69, 45, 69]} intensity={21000} color="#a855f7" distance={380} />

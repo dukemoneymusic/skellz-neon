@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Leaderboard from "@/components/Leaderboard";
 import type { Playback } from "@/components/Scene";
 import { PLAYBACK_FPS, resolveShot, routeTarget, type Cap, type GameState } from "@/game/sim";
 import { LAST_LEVEL, LEVELS, MAX_PLAYERS, boxByNumber, legOf } from "@/game/board";
@@ -83,6 +84,7 @@ export default function GameClient({ code }: { code: string }) {
   const [showColors, setShowColors] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showStandings, setShowStandings] = useState(false);
+  const [showBoard, setShowBoard] = useState(false);
   const [quiet, setQuiet] = useState(false);
 
   const [spin, setSpin] = useState(0);
@@ -106,6 +108,8 @@ export default function GameClient({ code }: { code: string }) {
    */
   const snapshotRef = useRef<Record<string, unknown> | null>(null);
   const restoringRef = useRef(false);
+  // Signature of the last payload we committed, so idle polls don't re-render.
+  const lastSigRef = useRef<string | null>(null);
 
   /** Offer our snapshot back. Returns true if the server took it or re-seated us. */
   const offerSnapshot = useCallback(async () => {
@@ -148,7 +152,19 @@ export default function GameClient({ code }: { code: string }) {
         if (await offerSnapshot()) return;
       }
 
-      setData(json);
+      // Skip the state update when nothing the UI renders has changed. The poll
+      // fires every 1.2s; without this it re-rendered the whole component and
+      // the 3D scene on every tick, even sitting idle. Note several lobby
+      // actions (join, team, add_bot) don't bump seq, so the signature has to
+      // cover the roster too, not just seq.
+      const r = json.room;
+      const sig =
+        `${r.seq}|${r.status}|${r.turnIndex}|${r.winner}|${r.level}|${r.storyScore}|${json.me?.canControl}|` +
+        json.players.map((p) => `${p.id}:${p.name}:${p.team}:${p.color}:${p.color2}:${p.isHost}:${p.isBot}`).join(",");
+      if (sig !== lastSigRef.current) {
+        lastSigRef.current = sig;
+        setData(json);
+      }
 
       // Only worth keeping once a match is actually underway.
       if (json.me && json.room.status !== "lobby" && json.state.caps.length > 0) {
@@ -896,8 +912,18 @@ export default function GameClient({ code }: { code: string }) {
             ) : (
               <p className="mt-4 text-sm text-white/50">Waiting for the host…</p>
             )}
+            <button
+              onClick={() => setShowBoard(true)}
+              className="mt-2 w-full rounded-xl border border-fuchsia-400/30 bg-fuchsia-400/5 py-2.5 text-sm font-bold text-fuchsia-300"
+            >
+              🏆 Leaderboard
+            </button>
           </div>
         </div>
+      )}
+
+      {showBoard && (
+        <Leaderboard onClose={() => setShowBoard(false)} highlight={data.me ? [data.me.name] : []} />
       )}
 
       {showColors && data.me && (

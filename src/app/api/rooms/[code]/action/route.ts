@@ -4,9 +4,9 @@ import { LAST_LEVEL, MAX_PLAYERS } from "@/game/board";
 import { computeBotShot } from "@/game/bot";
 import { COLORS, COLORS2 } from "@/game/colors";
 import { makeCap, resolveShot, type Cap, type ShotInput } from "@/game/sim";
+import { recordGame } from "@/server/leaderboard";
 import { isPendingToken, pendingTokenFor, shouldAdoptSnapshot, validateSnapshot } from "@/server/restore";
 import {
-  addLeaderboardRow,
   addPlayer,
   canControl,
   getOrCreateRoom,
@@ -104,16 +104,40 @@ function applyShot(room: Room, roster: Player[], shooterId: string, input: ShotI
     },
   });
 
-  if (result.finished && room.mode === "story" && room.level >= LAST_LEVEL) {
-    addLeaderboardRow({
-      name: roster
-        .filter((r) => !r.isBot)
-        .map((r) => r.name)
-        .join(", ")
-        .slice(0, 50) || "CPU run",
-      players: roster.length,
-      score: storyScore,
-    });
+  if (result.finished) {
+    // Record every finished game on the global, name-keyed leaderboard.
+    // Bots never count. A player's cap carries their id, so their final score
+    // is looked up by matching roster ids to caps.
+    const capById = new Map(result.state.caps.map((c) => [c.id, c]));
+    const humans = roster.filter((r) => !r.isBot);
+    const players = humans.map((r) => ({ name: r.name, score: capById.get(String(r.id))?.score ?? 0 }));
+
+    // Winners: the surviving team in co-op (every human on it), or the single
+    // surviving cap's owner in free-for-all. Story wins credit nobody — the
+    // achievement there is the clear itself, captured by storyShots.
+    let winnerNames: string[] = [];
+    if (room.mode === "pvp") {
+      const survivors = result.state.caps.filter((c) => c.alive);
+      if (room.teamMode && survivors.length > 0) {
+        const winTeam = survivors[0].team;
+        winnerNames = humans
+          .filter((r) => capById.get(String(r.id))?.team === winTeam)
+          .map((r) => r.name);
+      } else if (survivors.length === 1) {
+        const owner = humans.find((r) => String(r.id) === survivors[0].id);
+        if (owner) winnerNames = [owner.name];
+      }
+    }
+
+    const storyDone = room.mode === "story" && room.level >= LAST_LEVEL;
+    if (players.length > 0) {
+      recordGame({
+        mode: room.mode,
+        players,
+        winnerNames,
+        storyShots: storyDone ? storyScore : null,
+      });
+    }
   }
 
   return { result, seq };
