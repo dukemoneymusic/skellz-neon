@@ -555,14 +555,22 @@ export function resolveShot(
       // ---------------- THE BREAK SHOT (from START, target is 13) ----------------
       if (insideBox(13, shooter.x, shooter.z)) {
         if (!shooter.triedBreak) {
-          // Dead centre on the FIRST break attempt skips the entire forward run
-          shooter.step = BACK_STEP;
+          // Dead centre on the FIRST break skips the whole forward run AND
+          // blazes 3 boxes into the backward run: box 13 is made, then 12·11·10
+          // as the free 3 — so you land on box 10 and shoot down toward 9.
+          shooter.step = BACK_STEP + 3; // target 9 (ROUTE[17]); box 10 made
+          const box = boxByNumber(10);
+          if (box) {
+            shooter.x = box.x;
+            shooter.z = box.z;
+          }
+          shooter.onBoard = true;
           shooter.stuck = false;
           shooter.stuckValue = 0;
           shooter.missedTarget = false;
           shooter.score += 25;
           events.push(
-            `🔄 ${shooter.name} drills the middle on the break — skips the forward run, straight to BACKWARD (next: 12)!`,
+            `🔄 ${shooter.name} drills the middle on the break — skips ahead 3, now running box 10 → 9!`,
           );
           extraTurn = true;
         } else {

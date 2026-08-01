@@ -116,6 +116,36 @@ test("breaking into any middle panel starts your run from box 3", () => {
   }
 });
 
+test("drilling 13 on the break blazes 3 into the backward run — box 10, next 9", () => {
+  const state = newState(2);
+  const cap = state.caps[0];
+  cap.x = 0; // dead centre in box 13
+  cap.z = 0;
+  cap.onBoard = true;
+  state.caps[1].x = -120;
+  state.caps[1].z = -120;
+  assert.ok(insideBox(13, cap.x, cap.z), "fixture must sit in box 13");
+
+  // A dead-still flick so the break rule reads the 13 it's parked in.
+  const res = resolveShot(state, false, false, 0, cap.id, { angle: Math.PI, power: 0.01 });
+  const after = res.state.caps[0];
+  const box10 = boxByNumber(10)!;
+
+  assert.equal(after.step, 17, "step 17 — box 10 made, box 9 next");
+  assert.equal(ROUTE[after.step], 9, "next target is 9");
+  assert.equal(after.x, box10.x, "sits on box 10");
+  assert.equal(after.z, box10.z);
+});
+
+test("on the break, bots aim for a middle panel, never box 13", () => {
+  for (let slot = 0; slot < 4; slot++) {
+    const state = newState(slot + 1);
+    const cap = state.caps[slot]; // still at START, step 0
+    const shot = computeBotShot(state, cap, 0, false, () => 0.5);
+    assert.ok(shot.why.startsWith("breaking for"), `slot ${slot}: bot should break for a panel, got "${shot.why}"`);
+  }
+});
+
 test("you cannot strike a top before making box 1", () => {
   const state = newState(2);
   const shooter = state.caps[0];

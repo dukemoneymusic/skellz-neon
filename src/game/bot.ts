@@ -1,4 +1,4 @@
-import { LEVELS, boxByNumber, frictionFor } from "./board";
+import { LEVELS, PANELS, boxByNumber, frictionFor, panelCenter } from "./board";
 import { MAX_LAUNCH, isArmed, routeTarget, type Cap, type GameState, type ShotInput } from "./sim";
 
 /**
@@ -80,6 +80,27 @@ function chooseAim(state: GameState, cap: Cap, teamMode: boolean): Aim {
 
   const target = routeTarget(cap);
   if (target === null) return { x: 0, z: 0, why: "holding the middle" };
+
+  // On the break from START, bots aim for a middle PANEL (2/4/6/8), never
+  // dead-centre 13 — landing in a panel starts their run from box 3, and a
+  // panel is a far bigger, more forgiving target than the tiny 13 box. Pick the
+  // panel whose centre is closest to the bot's line in.
+  if (cap.step === 0) {
+    let best: [number, number] | null = null;
+    let bestD = Infinity;
+    let bestV = 0;
+    for (const p of PANELS) {
+      const [px, pz] = panelCenter(p.v);
+      const d = dist2(cap.x, cap.z, px, pz);
+      if (d < bestD) {
+        bestD = d;
+        best = [px, pz];
+        bestV = p.v;
+      }
+    }
+    if (best) return { x: best[0], z: best[1], why: `breaking for the ${bestV}` };
+  }
+
   if (target === 13) return { x: 0, z: 0, why: "going for the middle" };
   const box = boxByNumber(target);
   if (!box) return { x: 0, z: 0, why: "going for the middle" };
