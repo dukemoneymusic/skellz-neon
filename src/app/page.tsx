@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import InstallCard from "@/components/InstallCard";
 import Leaderboard from "@/components/Leaderboard";
-import { LEVELS, MAX_PLAYERS } from "@/game/board";
+import { MAX_PLAYERS } from "@/game/board";
 import { usePageUrl, useStoredName } from "@/game/session";
 
 export default function Home() {
@@ -109,27 +109,19 @@ export default function Home() {
               Co-op teams
             </button>
           </div>
-          <div className="mt-4 flex gap-2">
-            {/* The mode buttons used to silently reset your Free-for-all / Co-op
-                choice back to Free-for-all, so Co-op teams could never start. */}
+          <div className="mt-4">
+            {/* Story mode is hidden until it's reworked — the create("story")
+                path and the STRY room still exist, just no UI entry to them. */}
             <button
               onClick={() => create("pvp", teamMode)}
               disabled={busy}
-              className="flex-1 rounded-xl bg-cyan-400 py-3 font-black text-black disabled:opacity-50"
+              className="w-full rounded-xl bg-cyan-400 py-3 font-black text-black disabled:opacity-50"
             >
-              Play PvP
-            </button>
-            <button
-              onClick={() => create("story", teamMode)}
-              disabled={busy}
-              className="flex-1 rounded-xl bg-fuchsia-500 py-3 font-black text-black disabled:opacity-50"
-            >
-              Story Mode
+              Play
             </button>
           </div>
           <p className="mt-2 text-center text-[11px] text-white/40">
-            Story mode runs {LEVELS.length} boroughs, from {LEVELS[0].name} to {LEVELS[LEVELS.length - 1].name}. Add CPU
-            bots in the lobby.
+            Free-for-all or co-op teams. Add CPU bots in the lobby.
           </p>
         </div>
 
@@ -173,12 +165,6 @@ export default function Home() {
               className="w-full rounded-xl border border-cyan-400/30 bg-cyan-400/10 py-3 text-sm font-bold text-cyan-300"
             >
               Public PvP Room
-            </button>
-            <button
-              onClick={() => router.push(`/play/STRY`)}
-              className="w-full rounded-xl border border-fuchsia-400/30 bg-fuchsia-400/10 py-3 text-sm font-bold text-fuchsia-300"
-            >
-              Public Story Room
             </button>
           </div>
         </div>

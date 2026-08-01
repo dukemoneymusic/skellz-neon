@@ -646,13 +646,12 @@ export function resolveShot(
         );
         becomeKilla(state, shooter, events);
       } else {
-        const landed = ROUTE[shooter.step - 1];
-        const box = boxByNumber(landed);
-        if (box) {
-          shooter.x = box.x;
-          shooter.z = box.z;
-          shooter.onBoard = true;
-        }
+        // Do NOT snap the cap to a box centre. It stays exactly where it came
+        // to rest — which is inside the target box it just made — and the next
+        // flick is taken from there. Only `step` (which box you're now aiming
+        // for) advances.
+        shooter.onBoard = true;
+        const nextBox = ROUTE[shooter.step];
         const crossedFinal = before < FINAL_STEP && shooter.step >= FINAL_STEP;
         const crossedBack = before < BACK_STEP && shooter.step >= BACK_STEP;
         const crossedArmed = before < ARMED_STEP && shooter.step >= ARMED_STEP;
@@ -660,13 +659,11 @@ export function resolveShot(
         if (crossedFinal) {
           events.push(`🎯 ${shooter.name} makes box ${target}${tag} — one last flick for the middle!`);
         } else if (crossedBack) {
-          events.push(`🎯 ${shooter.name} makes box ${target}${tag} — now heading back to ${ROUTE[shooter.step]}!`);
+          events.push(`🎯 ${shooter.name} makes box ${target}${tag} — now heading back to ${nextBox}!`);
         } else if (crossedArmed) {
           events.push(`🎯 ${shooter.name} makes box ${target}${tag} — box 1 made, tops are LIVE now!`);
-        } else if (freshAttempt) {
-          events.push(`🎯 ${shooter.name} makes box ${target}${tag} to box ${landed}, next is ${ROUTE[shooter.step]}!`);
         } else {
-          events.push(`🎯 ${shooter.name} makes box ${target} — shoot again!`);
+          events.push(`🎯 ${shooter.name} makes box ${target}${tag} — next is ${nextBox}!`);
         }
       }
       extraTurn = true;

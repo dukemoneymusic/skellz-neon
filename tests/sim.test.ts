@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BOXES, LEVELS, RAIL, ROUTE, boxByNumber, panelValueAt } from "../src/game/board";
+import { BOXES, LEVELS, RAIL, ROUTE, boxByNumber, insideBox, panelValueAt } from "../src/game/board";
 import { computeBotShot } from "../src/game/bot";
 import { MIN_CHARGE, POWER_CYCLE_MS, powerAt } from "../src/game/power";
 import { makeCap, resolveShot, startPositionFor, type Cap, type GameState } from "../src/game/sim";
@@ -156,6 +156,34 @@ test("landing your target first try blazes 3 boxes, after a miss only 1", () => 
   assert.equal(stale.state.caps[0].step, 3, "a repeat landing should only move 1");
 });
 
+test("a clean landing leaves the cap where it stopped, not snapped to the box centre", () => {
+  const box2 = boxByNumber(2)!;
+  const state = newState(2);
+  const cap = state.caps[0];
+  cap.step = 2; // target is box 2
+  cap.onBoard = true;
+  // Start off-centre inside box 2's approach so the cap comes to rest off-centre
+  // but still cleanly inside the box.
+  cap.x = box2.x - 2.4;
+  cap.z = box2.z + 0.5;
+  state.caps[1].x = -140;
+  state.caps[1].z = -140;
+
+  const res = resolveShot(state, false, false, 0, "0", { angle: 0, power: 0.02 });
+  const after = res.state.caps[0];
+  const [restX, restZ] = res.frames.at(-1)!.p[0];
+
+  assert.ok(after.step > 2, "it should have made box 2");
+  // The cap is left where the physics stopped it (matching the final frame,
+  // give or take frame rounding) — NOT teleported to the box centre.
+  assert.ok(Math.abs(after.x - restX) < 0.01 && Math.abs(after.z - restZ) < 0.01, "position is the resting spot");
+  assert.ok(insideBox(2, after.x, after.z), "and it is genuinely inside box 2");
+  assert.ok(
+    Math.hypot(after.x - box2.x, after.z - box2.z) > 0.05,
+    `cap should not be snapped to box-2 centre; was (${after.x.toFixed(2)}, ${after.z.toFixed(2)})`,
+  );
+});
+
 test("getting knocked into a middle panel pins you there", () => {
   const state = newState(2);
   const shooter = state.caps[0];
@@ -253,9 +281,12 @@ test("the power meter swings up and back down while held", () => {
   assert.ok(Math.abs(powerAt(H) - 1) < 1e-9, "reaches full power halfway");
   assert.ok(Math.abs(powerAt(POWER_CYCLE_MS) - MIN_CHARGE) < 1e-9, "returns to the floor");
 
-  // Strictly rising then strictly falling.
-  for (let t = 0; t < H; t += 40) assert.ok(powerAt(t + 40) > powerAt(t), `should be rising at ${t}ms`);
-  for (let t = H; t < POWER_CYCLE_MS; t += 40) assert.ok(powerAt(t + 40) < powerAt(t), `should be falling at ${t}ms`);
+  // Strictly rising up to the peak, strictly falling after it. Step so we
+  // never straddle the peak, whatever the cycle length is.
+  const step = H / 20;
+  for (let t = 0; t + step <= H; t += step) assert.ok(powerAt(t + step) > powerAt(t), `should be rising at ${t}ms`);
+  for (let t = H; t + step <= POWER_CYCLE_MS; t += step)
+    assert.ok(powerAt(t + step) < powerAt(t), `should be falling at ${t}ms`);
 
   // Keeps swinging for as long as you hold, and never leaves a usable range.
   for (let t = 0; t < POWER_CYCLE_MS * 4; t += 17) {

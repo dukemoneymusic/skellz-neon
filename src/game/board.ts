@@ -18,7 +18,7 @@ export const START_ANGLE = Math.PI; // due west
 export const START_DIST = BOARD_HALF + 32;
 export const KILLA_ANGLE = Math.PI * 1.25; // north-west diagonal
 export const KILLA_DIST = BOARD_HALF + 58;
-export const LANE_LEN = 9.6; // long enough to seat all MAX_PLAYERS without overlap
+export const LANE_LEN = 15.0; // wide enough that all MAX_PLAYERS caps sit well apart at the line
 
 export const START_LINE = {
   x: Math.cos(START_ANGLE) * START_DIST,
@@ -193,7 +193,7 @@ function lanePosition(line: { x: number; z: number; angle: number; len: number }
   const bx = Math.cos(line.angle);
   const bz = Math.sin(line.angle);
   const t = -line.len / 2 + 0.6 + (s * (line.len - 1.2)) / (MAX_PLAYERS - 1);
-  const back = s % 2 === 0 ? 0.55 : -0.55;
+  const back = s % 2 === 0 ? 0.9 : -0.9;
   return { x: line.x + px * t + bx * back, z: line.z + pz * t + bz * back };
 }
 
