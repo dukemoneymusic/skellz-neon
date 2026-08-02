@@ -722,18 +722,21 @@ export function resolveShot(
   }
 
   // Team synchronization: when a teammate advances, the whole team advances
-  // with them — and is physically carried up to the same box, so nobody has to
-  // grind their own top forward from behind. Everyone shoots from the front.
+  // with them — and gathers at the front so nobody has to grind up from behind.
   if (teamMode) {
     const teams = [...new Set(state.caps.map((c) => c.team))];
     for (const t of teams) {
       const teamCaps = state.caps.filter((c) => c.team === t && c.alive);
       if (teamCaps.length === 0) continue;
 
-      // Find the furthest-along member of the team.
+      // Find the furthest-along member of the team. Capture the leader BEFORE
+      // syncing steps — once everyone shares maxStep, step can't tell them apart
+      // and the leader (who is actually at the front) would be lost.
       const isKiller = teamCaps.some((c) => c.killer);
       const maxStep = Math.max(...teamCaps.map((c) => c.step));
+      const leader = teamCaps.reduce((a, b) => (b.step > a.step ? b : a), teamCaps[0]);
 
+      let synced = false;
       teamCaps.forEach((c) => {
         if (isKiller && !c.killer) {
           becomeKilla(state, c, events);
@@ -743,18 +746,31 @@ export function resolveShot(
           c.stuck = false;
           c.stuckValue = 0;
           c.missedTarget = false;
-          // Carry the top up to the box its new step sits on, so the player
-          // takes their next shot from there rather than from way back.
-          const landed = ROUTE[c.step - 1];
-          const box = landed !== undefined ? boxByNumber(landed) : undefined;
-          if (box) {
-            c.x = box.x;
-            c.z = box.z;
-            c.onBoard = true;
-          }
-          events.push(`🤝 ${c.name} rides up to box ${ROUTE[c.step]} with their team!`);
+          synced = true;
+          events.push(`🤝 ${c.name} rides up with their team!`);
         }
       });
+
+      // When the team just moved up, gather everyone around the leader —
+      // but SPREAD OUT in a ring so no two tops sit on the same spot. Stacked
+      // teammates used to collide the instant one of them tried to shoot.
+      if (synced && !isKiller) {
+        const board = teamCaps.filter((c) => !c.killer && c.alive);
+        if (board.length > 1) {
+          // The leader keeps exactly where it came to rest; the rest ring around.
+          const followers = board.filter((c) => c.id !== leader.id);
+          // Radius large enough that neighbours on the ring never overlap
+          // (a cap is 2·CAP_R across), and it grows with the crowd.
+          const gap = CAP_R * 2 + 0.5;
+          const radius = Math.max(gap, (followers.length * gap) / (2 * Math.PI));
+          followers.forEach((c, i) => {
+            const ang = (i / followers.length) * Math.PI * 2 + 0.3;
+            c.x = leader.x + Math.cos(ang) * radius;
+            c.z = leader.z + Math.sin(ang) * radius;
+            c.onBoard = true;
+          });
+        }
+      }
     }
   }
 

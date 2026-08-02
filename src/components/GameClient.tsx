@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Leaderboard from "@/components/Leaderboard";
 import type { Playback } from "@/components/Scene";
 import { PLAYBACK_FPS, resolveShot, routeTarget, type Cap, type GameState } from "@/game/sim";
-import { LAST_LEVEL, LEVELS, MAX_PLAYERS, boxByNumber, legOf } from "@/game/board";
+import { LAST_LEVEL, LEVELS, MAX_PLAYERS, boxByNumber, clampBehindStart, legOf } from "@/game/board";
 import { isMuted, playShootSound, setMuted, unlockAudio } from "@/game/audio";
 import { MIN_CHARGE, powerAt } from "@/game/power";
 import { useRoomToken, useStoredName } from "@/game/session";
@@ -95,6 +95,8 @@ export default function GameClient({ code }: { code: string }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showStandings, setShowStandings] = useState(false);
   const [showBoard, setShowBoard] = useState(false);
+  const [placing, setPlacing] = useState(false);
+  const [placedFrom, setPlacedFrom] = useState<{ x: number; z: number } | null>(null);
   const [quiet, setQuiet] = useState(false);
 
   const [spin, setSpin] = useState(0);
@@ -109,6 +111,7 @@ export default function GameClient({ code }: { code: string }) {
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ dist: number; midX: number } | null>(null);
+  const placeDragRef = useRef<{ x: number; y: number; base: { x: number; z: number } } | null>(null);
 
   /**
    * Last good view of the room, kept so we can hand it back if the server
@@ -349,6 +352,21 @@ export default function GameClient({ code }: { code: string }) {
   const roomSeq = data?.room.seq ?? -1;
   const roomStatus = data?.room.status ?? "";
 
+  // Free placement behind the START line — offered only on the genuine first
+  // break, when the top is still staged at the line (step 0, not yet on the
+  // board). After that you play it where it lies, so no placement.
+  const atStartBreak = isMyTurn && !!myCap && myCap.step === 0 && !myCap.killer && !myCap.onBoard;
+  // The placed spot only counts during that break; everywhere else the top's
+  // real position is the origin. (This is why no reset effect is needed.)
+  const origin = atStartBreak && placedFrom ? placedFrom : myCap ? { x: myCap.x, z: myCap.z } : null;
+
+  // What the 3D scene draws: your own top follows the placement while you're
+  // setting it, everyone else is untouched.
+  const displayCaps = useMemo(() => {
+    if (!atStartBreak || !placedFrom || !myId) return caps;
+    return caps.map((c) => (c.id === myId ? { ...c, x: placedFrom.x, z: placedFrom.z } : c));
+  }, [caps, atStartBreak, placedFrom, myId]);
+
   /**
    * Drive the CPU turns.
    *
@@ -441,13 +459,18 @@ export default function GameClient({ code }: { code: string }) {
   useEffect(() => stopCharging, [stopCharging]);
 
   /** Fire a shot and play it back locally without waiting for the next poll. */
-  const shoot = async (angle: number, power: number) => {
+  const shoot = async (angle: number, power: number, from?: { x: number; z: number } | null) => {
     if (!data || !myId) return;
     setSending(true);
     unlockAudio();
     playShootSound();
-    const prev = prevRef.current ?? view;
-    const res = await act({ action: "shot", angle, power });
+    let prev = prevRef.current ?? view;
+    // A break shot from a chosen spot: move our own top there in the state the
+    // local replay simulates, so it matches the server (which does the same).
+    if (from) {
+      prev = { ...prev, caps: prev.caps.map((c) => (c.id === myId ? { ...c, x: from.x, z: from.z } : c)) };
+    }
+    const res = await act({ action: "shot", angle, power, from: from ?? undefined });
     setSending(false);
     if (!res) return;
     const sim = resolveShot(prev, data.room.teamMode, data.room.mode === "story", data.room.level, myId, {
@@ -484,13 +507,20 @@ export default function GameClient({ code }: { code: string }) {
     }
 
     if (pointersRef.current.size === 1) {
-      if (!isMyTurn || !myCap) return;
+      if (!isMyTurn || !myCap || !origin) return;
+      // Placement mode: a drag slides your top around behind the line instead
+      // of aiming, and no shot is charged.
+      if (placing && atStartBreak) {
+        placeDragRef.current = { x: e.clientX, y: e.clientY, base: origin };
+        return;
+      }
       dragRef.current = { x: e.clientX, y: e.clientY };
       // Start pointed at whatever you're chasing, so a straight hold-and-release
-      // is already a sensible shot and dragging is only for steering.
+      // is already a sensible shot and dragging is only for steering. Aim from
+      // wherever the top actually sits (its placed spot on the break).
       const tp = targetPointFor(myCap);
-      const angle = tp ? Math.atan2(tp.z - myCap.z, tp.x - myCap.x) : 0;
-      setAim({ from: [myCap.x, myCap.z], angle, power: 0 });
+      const angle = tp ? Math.atan2(tp.z - origin.z, tp.x - origin.x) : 0;
+      setAim({ from: [origin.x, origin.z], angle, power: 0 });
       startCharging();
     }
   };
@@ -514,6 +544,19 @@ export default function GameClient({ code }: { code: string }) {
     }
 
     if (pointersRef.current.size === 1) {
+      // Placement drag: slide the top around behind the line, clamped to the
+      // legal zone. The screen delta is mapped into the ground plane using the
+      // current camera spin so a drag moves the top the way you'd expect.
+      if (placeDragRef.current) {
+        const dx = e.clientX - placeDragRef.current.x;
+        const dy = e.clientY - placeDragRef.current.y;
+        const SCALE = 0.06;
+        const wx = (-Math.cos(spin) * dx + Math.sin(spin) * dy) * SCALE;
+        const wz = (Math.sin(spin) * dx + Math.cos(spin) * dy) * SCALE;
+        const base = placeDragRef.current.base;
+        setPlacedFrom(clampBehindStart(base.x + wx, base.z + wz));
+        return;
+      }
       if (!dragRef.current || !myCap || !isMyTurn) return;
       const dx = e.clientX - dragRef.current.x;
       const dy = e.clientY - dragRef.current.y;
@@ -527,6 +570,11 @@ export default function GameClient({ code }: { code: string }) {
   const onPointerUp = async (e: React.PointerEvent) => {
     pointersRef.current.delete(e.pointerId);
     if (pointersRef.current.size < 2) pinchRef.current = null;
+    // Finishing a placement drag never fires a shot.
+    if (placeDragRef.current) {
+      placeDragRef.current = null;
+      return;
+    }
     if (pointersRef.current.size !== 0) return;
 
     const a = aim;
@@ -536,13 +584,15 @@ export default function GameClient({ code }: { code: string }) {
     dragRef.current = null;
     setAim(null);
     if (!a || !isMyTurn) return;
-    await shoot(a.angle, power);
+    // On the break, fire from wherever you placed your top behind the line.
+    await shoot(a.angle, power, atStartBreak ? placedFrom : null);
   };
 
   const onPointerCancel = (e: React.PointerEvent) => {
     pointersRef.current.delete(e.pointerId);
     dragRef.current = null;
     pinchRef.current = null;
+    placeDragRef.current = null;
     stopCharging();
     setAim(null);
   };
@@ -622,7 +672,7 @@ export default function GameClient({ code }: { code: string }) {
         onPointerCancel={onPointerCancel}
       >
         <Scene
-          caps={caps}
+          caps={displayCaps}
           playback={playback}
           turnId={turnId}
           aim={aim}
@@ -781,6 +831,28 @@ export default function GameClient({ code }: { code: string }) {
           <span className="text-xl">🤏</span>
           <span className="mt-0.5 text-[9px] font-black uppercase leading-tight">Tap</span>
         </button>
+      )}
+
+      {/* Free placement: only offered on the break, when you can stand your top
+          anywhere behind the START line. */}
+      {atStartBreak && !playback && (
+        <button
+          onClick={() => setPlacing((v) => !v)}
+          className={`bottom-safe pointer-events-auto absolute left-24 z-20 flex h-16 w-16 flex-col items-center justify-center rounded-full border-2 text-center shadow-lg active:opacity-80 ${
+            placing ? "border-emerald-400 bg-emerald-400/25 text-emerald-100" : "border-cyan-400 bg-black/80 text-cyan-300"
+          }`}
+        >
+          <span className="text-xl">{placing ? "✓" : "📍"}</span>
+          <span className="mt-0.5 text-[9px] font-black uppercase leading-tight">{placing ? "Set" : "Move"}</span>
+        </button>
+      )}
+
+      {placing && atStartBreak && !playback && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-44 flex justify-center px-4">
+          <div className="max-w-[92vw] rounded-full border border-cyan-400/40 bg-black/75 px-4 py-1.5 text-center text-xs font-bold text-cyan-100 backdrop-blur">
+            Drag to stand your top anywhere behind the line · tap ✓ when set
+          </div>
+        </div>
       )}
 
       {error && (

@@ -205,6 +205,44 @@ export function killaPositionFor(slot: number) {
   return lanePosition(KILLA_LINE, slot);
 }
 
+// ---- free placement behind the START line ---------------------------------
+// On the break you may stand your top anywhere behind the chalk line, not just
+// on your assigned slot. The zone is a band running the width of the line and
+// reaching back away from the board.
+export const START_BACK_DEPTH = 16; // how far behind the line you may stand
+export const START_BAND_HALF = LANE_LEN; // how far along the line, each way
+
+/** Unit vector from the START line toward the board (origin). */
+function startBasis() {
+  const bx = -START_LINE.x;
+  const bz = -START_LINE.z;
+  const len = Math.hypot(bx, bz) || 1;
+  const toBoardX = bx / len;
+  const toBoardZ = bz / len;
+  return { toBoardX, toBoardZ, alongX: -toBoardZ, alongZ: toBoardX };
+}
+
+/**
+ * Clamp an arbitrary point into the legal "behind the START line" zone: on the
+ * line at most, back to START_BACK_DEPTH, and within START_BAND_HALF along it.
+ * Used both by the client (to constrain the drag preview) and the server (to
+ * sanitise whatever a client sends, so nobody can place off the lot).
+ */
+export function clampBehindStart(x: number, z: number): { x: number; z: number } {
+  const { toBoardX, toBoardZ, alongX, alongZ } = startBasis();
+  const dx = x - START_LINE.x;
+  const dz = z - START_LINE.z;
+  // forward (+ toward board) and sideways components
+  let f = dx * toBoardX + dz * toBoardZ;
+  let a = dx * alongX + dz * alongZ;
+  f = Math.max(-START_BACK_DEPTH, Math.min(0.5, f)); // on the line (0) back to -depth
+  a = Math.max(-START_BAND_HALF, Math.min(START_BAND_HALF, a));
+  return {
+    x: START_LINE.x + toBoardX * f + alongX * a,
+    z: START_LINE.z + toBoardZ * f + alongZ * a,
+  };
+}
+
 // ---- NYC Story Levels (20 Boroughs & Landmarks) --------------------------
 export const LEVELS = [
   { id: 0, name: "Da Commons", friction: 2.2, c1: "#6ff2ff", c2: "#ff5c8a", bg: "#8e9bb5" }, // standard

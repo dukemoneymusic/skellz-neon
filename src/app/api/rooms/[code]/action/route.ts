@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { nanoid } from "nanoid";
-import { LAST_LEVEL, MAX_PLAYERS } from "@/game/board";
+import { LAST_LEVEL, MAX_PLAYERS, clampBehindStart } from "@/game/board";
 import { computeBotShot } from "@/game/bot";
 import { COLORS, COLORS2 } from "@/game/colors";
 import { makeCap, resolveShot, type Cap, type ShotInput } from "@/game/sim";
@@ -45,6 +45,7 @@ type Body = {
   power?: number;
   seq?: number;
   snapshot?: unknown;
+  from?: { x?: number; z?: number };
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -428,6 +429,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
       const angle = typeof body.angle === "number" && Number.isFinite(body.angle) ? body.angle : 0;
       const rawPower = typeof body.power === "number" && Number.isFinite(body.power) ? body.power : 0.5;
       const power = Math.max(0.01, Math.min(1, rawPower));
+
+      // Free placement: on the break you may stand your top anywhere behind the
+      // START line. Trust nothing the client sends — clamp it into the legal
+      // zone, and only honour it while the cap is still at START (step 0).
+      const from = body.from;
+      if (
+        cap.step === 0 &&
+        from &&
+        typeof from.x === "number" &&
+        typeof from.z === "number" &&
+        Number.isFinite(from.x) &&
+        Number.isFinite(from.z)
+      ) {
+        const placed = clampBehindStart(from.x, from.z);
+        const caps = room.state.caps.map((c) => (c.id === currentId ? { ...c, x: placed.x, z: placed.z } : c));
+        updateRoom(room, { state: { ...room.state, caps } });
+      }
 
       const { result, seq } = applyShot(room, roster, currentId, { angle, power });
       return NextResponse.json({ ok: true, events: result.events, seq, soundEvents: result.soundEvents });

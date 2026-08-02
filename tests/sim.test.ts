@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BOXES, FINAL_STEP, LEVELS, RAIL, ROUTE, boxByNumber, insideBox, panelValueAt } from "../src/game/board";
+import {
+  BOXES,
+  CAP_R,
+  FINAL_STEP,
+  LEVELS,
+  RAIL,
+  ROUTE,
+  START_BACK_DEPTH,
+  START_BAND_HALF,
+  START_LINE,
+  boxByNumber,
+  clampBehindStart,
+  insideBox,
+  panelValueAt,
+} from "../src/game/board";
 import { computeBotShot } from "../src/game/bot";
 import { MIN_CHARGE, POWER_CYCLE_MS, powerAt } from "../src/game/power";
 import { makeCap, resolveShot, startPositionFor, type Cap, type GameState } from "../src/game/sim";
@@ -508,11 +522,61 @@ test("in team mode a teammate is carried up to the leader's box", () => {
   const afterB = res.state.caps.find((c) => c.id === b.id)!;
 
   assert.equal(afterA.step, afterB.step, "the whole team shares the leader's step");
-  // A must be physically relocated onto its new box — not left back at START.
-  const landed = ROUTE[afterA.step - 1];
-  const box = boxByNumber(landed)!;
-  assert.ok(Math.abs(afterA.x - box.x) < 0.001 && Math.abs(afterA.z - box.z) < 0.001, "A rode up onto its new box");
+  // A rides up to the FRONT next to the leader B — but not on top of it.
   assert.ok(Math.abs(afterA.x - startPositionFor(0).x) > 5, "A is no longer back at START");
+  const gap = Math.hypot(afterA.x - afterB.x, afterA.z - afterB.z);
+  assert.ok(gap > CAP_R * 2, `A must not overlap the leader (gap ${gap.toFixed(2)})`);
+  assert.ok(gap < 4, `A should gather near the leader (gap ${gap.toFixed(2)})`);
+});
+
+test("a whole synced team spreads out — no two tops overlap", () => {
+  // Team of four: three sit back, one makes a box and drags the rest up.
+  const state = newState(4);
+  for (const c of state.caps) c.team = 0;
+  const leader = state.caps[0];
+  const box5 = boxByNumber(5)!;
+  leader.step = 5;
+  leader.onBoard = true;
+  leader.x = box5.x - 3;
+  leader.z = box5.z;
+  for (let i = 1; i < 4; i++) {
+    state.caps[i].step = 2;
+    state.caps[i].onBoard = true;
+    state.caps[i].x = startPositionFor(i).x;
+    state.caps[i].z = startPositionFor(i).z;
+  }
+
+  const res = resolveShot(state, true, false, 0, leader.id, { angle: 0, power: 0.032 });
+  const caps = res.state.caps;
+
+  // Everyone shares the step, and no pair sits within a cap's width.
+  const steps = new Set(caps.map((c) => c.step));
+  assert.equal(steps.size, 1, "the whole team shares one step");
+  for (let i = 0; i < caps.length; i++) {
+    for (let j = i + 1; j < caps.length; j++) {
+      const d = Math.hypot(caps[i].x - caps[j].x, caps[i].z - caps[j].z);
+      assert.ok(d > CAP_R * 2, `caps ${i} and ${j} overlap (gap ${d.toFixed(2)})`);
+    }
+  }
+});
+
+test("placement is clamped to the zone behind the START line", () => {
+  // Right on the line stays put (within the tiny forward margin).
+  const onLine = clampBehindStart(START_LINE.x, START_LINE.z);
+  assert.ok(Math.hypot(onLine.x - START_LINE.x, onLine.z - START_LINE.z) < 1, "on-line point stays on the line");
+
+  // A point way toward the board is pulled back to (just on) the line — you
+  // can never place in front of it. START faces due west, so "toward board"
+  // is +x and the clamp caps the forward component at ~0.5.
+  const front = clampBehindStart(0, START_LINE.z);
+  assert.ok(front.x <= START_LINE.x + 0.6, "cannot place in front of the line");
+
+  // Way behind and far along the line clamps to the depth/width limits.
+  const far = clampBehindStart(START_LINE.x - 200, START_LINE.z + 200);
+  assert.ok(Math.abs(far.x - START_LINE.x) <= START_BACK_DEPTH + 0.001, "depth is capped");
+  assert.ok(Math.abs(far.z - START_LINE.z) <= START_BAND_HALF + 0.001, "width along the line is capped");
+  // And it's still a real spot, not off in space.
+  assert.ok(Number.isFinite(far.x) && Number.isFinite(far.z));
 });
 
 test("every numbered box is reachable and unique", () => {
