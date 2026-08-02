@@ -654,7 +654,10 @@ export function resolveShot(
       // you the normal 1 box, no bonus.
       const before = shooter.step;
       const freshAttempt = !shooter.missedTarget;
-      const gain = freshAttempt ? 3 : 1;
+      // First try: make the box (+1) AND blaze 3 more, landing you ON the box
+      // three ahead — e.g. make box 4 from box 3 and you end up on box 7. Miss
+      // once and a later hit on this target only advances the normal 1 box.
+      const gain = freshAttempt ? 4 : 1;
       shooter.step = Math.min(ROUTE_LEN, shooter.step + gain);
       shooter.stuck = false;
       shooter.stuckValue = 0;
@@ -668,11 +671,18 @@ export function resolveShot(
         );
         becomeKilla(state, shooter, events);
       } else {
-        // Do NOT snap the cap to a box centre. It stays exactly where it came
-        // to rest — which is inside the target box it just made — and the next
-        // flick is taken from there. Only `step` (which box you're now aiming
-        // for) advances.
         shooter.onBoard = true;
+        const landedBox = ROUTE[shooter.step - 1];
+        // On the blaze bonus you SKIP forward, so carry the top onto the box it
+        // skipped to — your next shot is taken from that new box. A normal
+        // (non-bonus) make leaves you exactly where you came to rest.
+        if (freshAttempt) {
+          const box = boxByNumber(landedBox);
+          if (box) {
+            shooter.x = box.x;
+            shooter.z = box.z;
+          }
+        }
         const nextBox = ROUTE[shooter.step];
         const crossedFinal = before < FINAL_STEP && shooter.step >= FINAL_STEP;
         const crossedBack = before < BACK_STEP && shooter.step >= BACK_STEP;

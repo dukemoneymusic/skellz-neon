@@ -321,15 +321,48 @@ test("landing your target first try blazes 3 boxes, after a miss only 1", () => 
   const fresh = resolveShot(build(false), false, false, 0, "0", { angle: 0, power: 0.032 });
   const stale = resolveShot(build(true), false, false, 0, "0", { angle: 0, power: 0.032 });
 
-  assert.equal(fresh.state.caps[0].step, 5, "first-try landing should jump 3 boxes");
-  assert.equal(stale.state.caps[0].step, 3, "a repeat landing should only move 1");
+  // Fresh: make box 2 (+1) and blaze 3 more → step 6, sitting on box 5.
+  assert.equal(fresh.state.caps[0].step, 6, "first-try landing makes the box + blazes 3 (net 4)");
+  const box5 = boxByNumber(5)!;
+  assert.ok(
+    Math.abs(fresh.state.caps[0].x - box5.x) < 0.001 && Math.abs(fresh.state.caps[0].z - box5.z) < 0.001,
+    "and the top is carried onto the box it blazed to",
+  );
+  assert.equal(stale.state.caps[0].step, 3, "a repeat landing only moves 1");
 });
 
-test("a clean landing leaves the cap where it stopped, not snapped to the box centre", () => {
+test("the blaze bonus example: from box 3 make box 4, end up on box 7", () => {
+  // Targeting box 4 (step 4). Land box 4 first try → make it + blaze 3 → sit
+  // on box 7, next target box 8. (Boxes needn't be physically adjacent; only
+  // the target and the landing matter.)
+  const box4 = boxByNumber(4)!;
+  const box7 = boxByNumber(7)!;
+  const state = newState(2);
+  const cap = state.caps[0];
+  cap.step = 4; // ROUTE[4] === 4, so target is box 4
+  cap.onBoard = true;
+  cap.x = box4.x - 3; // just short of box 4
+  cap.z = box4.z;
+  state.caps[1].x = -140;
+  state.caps[1].z = -140;
+
+  // Tap straight into box 4.
+  const res = resolveShot(state, false, false, 0, "0", { angle: 0, power: 0.032 });
+  const after = res.state.caps[0];
+  assert.equal(after.step, 8, "step 8 — box 7 made, box 8 next");
+  assert.equal(ROUTE[after.step], 8, "next target is box 8");
+  assert.ok(
+    Math.abs(after.x - box7.x) < 0.001 && Math.abs(after.z - box7.z) < 0.001,
+    `top should sit on box 7; was (${after.x.toFixed(1)}, ${after.z.toFixed(1)})`,
+  );
+});
+
+test("a repeat (non-bonus) landing leaves the cap where it stopped, not snapped to the box centre", () => {
   const box2 = boxByNumber(2)!;
   const state = newState(2);
   const cap = state.caps[0];
   cap.step = 2; // target is box 2
+  cap.missedTarget = true; // already missed once → no blaze, no reposition
   cap.onBoard = true;
   // Start off-centre inside box 2's approach so the cap comes to rest off-centre
   // but still cleanly inside the box.
