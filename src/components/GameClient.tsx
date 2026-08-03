@@ -683,7 +683,10 @@ export default function GameClient({ code }: { code: string }) {
         />
       </div>
 
-      <div className="inset-safe-top pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 pb-2.5">
+      {/* The whole top strip absorbs taps (pointer-events-auto) so a tap that
+          just misses a button no longer falls through to the board and starts
+          an accidental shot. */}
+      <div className="inset-safe-top pointer-events-auto absolute inset-x-0 top-0 flex items-start justify-between gap-2 pb-2.5">
         <div className="pointer-events-auto flex items-center gap-1.5">
           <div className="rounded-full border border-white/10 bg-black/55 px-3 py-1.5 backdrop-blur">
             <span className="font-mono text-sm font-black tracking-[0.25em] text-cyan-300">{data.room.code}</span>
@@ -704,10 +707,10 @@ export default function GameClient({ code }: { code: string }) {
         <div className="pointer-events-auto relative">
           <button
             onClick={() => setShowMenu((v) => !v)}
-            // Big, thumb-friendly tap target (56px) so it's hard to miss and
-            // clip the board behind it — a near-miss used to start a shot.
+            // Big, thumb-friendly tap target (64px). Combined with the whole
+            // top strip now absorbing taps, a near-miss can't start a shot.
             onPointerDown={(e) => e.stopPropagation()}
-            className={`flex h-14 w-14 items-center justify-center rounded-full border text-2xl backdrop-blur ${showMenu ? "border-cyan-300 bg-cyan-400/25" : "border-white/15 bg-black/55"}`}
+            className={`flex h-16 w-16 items-center justify-center rounded-full border text-3xl backdrop-blur ${showMenu ? "border-cyan-300 bg-cyan-400/25" : "border-white/15 bg-black/55"}`}
           >
             ☰
           </button>
