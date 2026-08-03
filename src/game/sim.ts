@@ -785,34 +785,45 @@ export function resolveShot(
   }
 
   const alive = state.caps.filter((c) => c.alive);
+  // Everyone left is pinned in the middle at the same time. Nobody can free
+  // anybody (a stuck top can't shoot), so the round has deadlocked.
+  const everyoneStuck = alive.length > 0 && alive.every((c) => c.stuck);
 
-  // deadlock guard: if every top left is pinned in the middle, the skull spits
-  // them all back out to their chalk lines
-  if (alive.length > 0 && alive.every((c) => c.stuck)) {
+  let finished = false;
+  let winner: string | null = null;
+
+  if (everyoneStuck && !isStory && state.caps.length > 1) {
+    // In a real match that's a dead heat — the game ends in a TIE.
+    finished = true;
+    winner = "Tie";
+    events.push("🤝 Every top is stuck in the middle at once — it's a TIE!");
+  } else if (everyoneStuck) {
+    // Solo / story has no opponent to knock anyone out, so keep it moving: the
+    // skull spits them back to the lines rather than wedging forever.
     for (const c of alive) sendHome(state, c);
     events.push("🌀 Every top was stuck — the skull spits them all back to the lines!");
   }
 
-  let finished = false;
-  let winner: string | null = null;
-  if (isStory) {
-    // In story mode, the goal is for ANY cap to become a KILLA.
-    if (alive.some((c) => c.killer)) {
+  if (!finished) {
+    if (isStory) {
+      // In story mode, the goal is for ANY cap to become a KILLA.
+      if (alive.some((c) => c.killer)) {
+        finished = true;
+        winner = "Level Cleared";
+      } else if (alive.length === 0) {
+        finished = true;
+        winner = "Nobody";
+      }
+    } else if (teamMode) {
+      const teams = new Set(alive.map((c) => c.team));
+      if (teams.size <= 1 && state.caps.length > 1) {
+        finished = true;
+        winner = teams.size === 1 ? `Team ${[...teams][0] + 1}` : "Nobody";
+      }
+    } else if (alive.length <= 1 && state.caps.length > 1) {
       finished = true;
-      winner = "Level Cleared";
-    } else if (alive.length === 0) {
-      finished = true;
-      winner = "Nobody";
+      winner = alive[0]?.name ?? "Nobody";
     }
-  } else if (teamMode) {
-    const teams = new Set(alive.map((c) => c.team));
-    if (teams.size <= 1 && state.caps.length > 1) {
-      finished = true;
-      winner = teams.size === 1 ? `Team ${[...teams][0] + 1}` : "Nobody";
-    }
-  } else if (alive.length <= 1 && state.caps.length > 1) {
-    finished = true;
-    winner = alive[0]?.name ?? "Nobody";
   }
 
   state.log = [...events, ...state.log].slice(0, 40);

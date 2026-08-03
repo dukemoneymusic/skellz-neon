@@ -612,6 +612,45 @@ test("placement is clamped to the zone behind the START line", () => {
   assert.ok(Number.isFinite(far.x) && Number.isFinite(far.z));
 });
 
+test("everyone pinned in the middle at once is a TIE", () => {
+  const state = newState(2);
+  const shooter = state.caps[0];
+  const other = state.caps[1];
+  shooter.step = 5; // armed
+  shooter.onBoard = true;
+  shooter.team = 0;
+  shooter.x = 5.8; // the 4 panel
+  shooter.z = 0;
+  other.step = 5;
+  other.onBoard = true;
+  other.team = 1;
+  other.stuck = true; // already pinned
+  other.stuckValue = 8;
+  other.x = -5.8; // the 8 panel
+  other.z = 0;
+  assert.equal(panelValueAt(shooter.x, shooter.z), 4, "shooter fixture sits in the 4");
+
+  // A whisper of a tap keeps the shooter in the panel → it gets stuck too, so
+  // now every top is stuck at once.
+  const res = resolveShot(state, false, false, 0, shooter.id, { angle: Math.PI / 2, power: 0.006 });
+  assert.equal(res.finished, true, `game should end; events: ${res.events.join(" | ")}`);
+  assert.equal(res.winner, "Tie");
+  assert.ok(res.events.some((e) => e.includes("TIE")));
+});
+
+test("a lone stuck top is spat back out, not called a tie", () => {
+  // Solo (one cap): no opponent to free it, so keep the game moving.
+  const state = newState(1);
+  const cap = state.caps[0];
+  cap.step = 5;
+  cap.onBoard = true;
+  cap.x = 5.8;
+  cap.z = 0;
+  const res = resolveShot(state, false, false, 0, cap.id, { angle: Math.PI / 2, power: 0.006 });
+  assert.equal(res.finished, false, "a solo deadlock never ties");
+  assert.equal(res.state.caps[0].stuck, false, "the lone top is spat back to the line");
+});
+
 test("every numbered box is reachable and unique", () => {
   const seen = new Set<string>();
   for (const b of BOXES) {

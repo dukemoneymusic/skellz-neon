@@ -704,7 +704,10 @@ export default function GameClient({ code }: { code: string }) {
         <div className="pointer-events-auto relative">
           <button
             onClick={() => setShowMenu((v) => !v)}
-            className={`h-9 w-9 rounded-full border text-base backdrop-blur ${showMenu ? "border-cyan-300 bg-cyan-400/25" : "border-white/15 bg-black/55"}`}
+            // Big, thumb-friendly tap target (56px) so it's hard to miss and
+            // clip the board behind it — a near-miss used to start a shot.
+            onPointerDown={(e) => e.stopPropagation()}
+            className={`flex h-14 w-14 items-center justify-center rounded-full border text-2xl backdrop-blur ${showMenu ? "border-cyan-300 bg-cyan-400/25" : "border-white/15 bg-black/55"}`}
           >
             ☰
           </button>
@@ -958,13 +961,15 @@ export default function GameClient({ code }: { code: string }) {
       {data.room.status === "finished" && (
         <div className="pad-safe absolute inset-0 z-40 grid place-items-center overflow-y-auto bg-black/75 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-3xl border border-fuchsia-400/30 bg-[#0a0f1c]/90 p-6 text-center">
-            <div className="text-5xl">🏆</div>
+            <div className="text-5xl">{data.room.winner === "Tie" ? "🤝" : "🏆"}</div>
             <h2 className="mt-2 text-3xl font-black text-fuchsia-300">
               {isStory
                 ? data.room.level >= LAST_LEVEL
                   ? "Campaign Complete!"
                   : `${levelName} cleared!`
-                : `${data.room.winner} wins!`}
+                : data.room.winner === "Tie"
+                  ? "It's a TIE!"
+                  : `${data.room.winner} wins!`}
             </h2>
             {isStory ? (
               <p className="mt-2 text-sm text-white/70">

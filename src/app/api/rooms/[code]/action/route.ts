@@ -117,7 +117,8 @@ function applyShot(room: Room, roster: Player[], shooterId: string, input: ShotI
     // surviving cap's owner in free-for-all. Story wins credit nobody — the
     // achievement there is the clear itself, captured by storyShots.
     let winnerNames: string[] = [];
-    if (room.mode === "pvp") {
+    // A tie credits nobody a win (everyone was pinned in the middle at once).
+    if (room.mode === "pvp" && result.winner !== "Tie") {
       const survivors = result.state.caps.filter((c) => c.alive);
       if (room.teamMode && survivors.length > 0) {
         const winTeam = survivors[0].team;
