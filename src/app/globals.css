@@ -1,5 +1,35 @@
 @import "tailwindcss";
 
+/* Message bar: each line fades in, holds, then fades out. Duration matches
+   MSG_LIFETIME_MS in GameClient, so the element is removed from state right as
+   its fade-out finishes. `forwards` keeps it hidden if the removal lags. */
+@keyframes skellz-msg-in-out {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  8% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  88% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.skellz-msg {
+  animation: skellz-msg-in-out 4200ms ease-in-out forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skellz-msg {
+    animation: none;
+  }
+}
+
 html,
 body {
   height: 100%;

@@ -66,6 +66,25 @@ const EMPTY: GameState = { caps: [], log: [] };
 const POLL_MS = 1200;
 /** How long a CPU "thinks" before flicking, so its turn is readable. */
 const BOT_THINK_MS = 1100;
+/** How long each message stays up before it fades out. */
+const MSG_LIFETIME_MS = 4200;
+/** Give every fetch a hard ceiling. Without this a hung request on a flaky
+ *  phone connection blocks the poll loop (which awaits each poll before
+ *  scheduling the next) — the board freezes and you "can't shoot any more". */
+const FETCH_TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(url: string, opts: RequestInit = {}, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+let msgSeq = 0;
+type Msg = { id: number; text: string };
 
 /** Co-op supports up to four teams; sizes are free (teams of 2, 3 or 4). */
 const TEAM_COUNT = 4;
@@ -88,7 +107,7 @@ export default function GameClient({ code }: { code: string }) {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<GameState>(EMPTY);
   const [playback, setPlayback] = useState<Playback | null>(null);
-  const [toast, setToast] = useState<string[]>([]);
+  const [messages, setMessages] = useState<Msg[]>([]);
   const [sending, setSending] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [showColors, setShowColors] = useState(false);
@@ -130,7 +149,7 @@ export default function GameClient({ code }: { code: string }) {
     if (!snapshot || !token || restoringRef.current) return false;
     restoringRef.current = true;
     try {
-      const res = await fetch(`/api/rooms/${code}/action`, {
+      const res = await fetchWithTimeout(`/api/rooms/${code}/action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "restore", token, snapshot }),
@@ -145,7 +164,7 @@ export default function GameClient({ code }: { code: string }) {
 
   const poll = useCallback(async () => {
     try {
-      const res = await fetch(`/api/rooms/${code}?token=${token ?? ""}`, { cache: "no-store" });
+      const res = await fetchWithTimeout(`/api/rooms/${code}?token=${token ?? ""}`, { cache: "no-store" });
 
       // The room is gone. If we were mid-match, put it back.
       if (res.status === 404) {
@@ -228,6 +247,18 @@ export default function GameClient({ code }: { code: string }) {
     };
   }, [poll]);
 
+  // Message bar: push each game-event line as its own message that fades and
+  // removes itself after MSG_LIFETIME_MS, so messages come and go individually.
+  const pushMessages = useCallback((texts: string[] | undefined) => {
+    if (!texts?.length) return;
+    const items = texts.filter(Boolean).map((text) => ({ id: ++msgSeq, text }));
+    if (!items.length) return;
+    setMessages((prev) => [...prev, ...items].slice(-5));
+    for (const it of items) {
+      setTimeout(() => setMessages((prev) => prev.filter((m) => m.id !== it.id)), MSG_LIFETIME_MS);
+    }
+  }, []);
+
   // Replay any shot we did not make ourselves (opponents and CPUs).
   useEffect(() => {
     if (!data) return;
@@ -258,9 +289,9 @@ export default function GameClient({ code }: { code: string }) {
       setView(data.state);
       prevRef.current = data.state;
     }
-    if (shot?.events?.length) setToast(shot.events);
+    if (shot?.events?.length) pushMessages(shot.events);
     appliedSeq.current = data.room.seq;
-  }, [data]);
+  }, [data, pushMessages]);
 
   const onPlaybackEnd = useCallback(() => {
     if (pendingRef.current) {
@@ -288,16 +319,10 @@ export default function GameClient({ code }: { code: string }) {
     return () => clearTimeout(t);
   }, [playback, onPlaybackEnd]);
 
-  useEffect(() => {
-    if (!toast.length) return;
-    const t = setTimeout(() => setToast([]), 4200);
-    return () => clearTimeout(t);
-  }, [toast]);
-
   const act = useCallback(
     async (body: Record<string, unknown>, opts: { silent?: boolean } = {}) => {
       try {
-        const res = await fetch(`/api/rooms/${code}/action`, {
+        const res = await fetchWithTimeout(`/api/rooms/${code}/action`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...body, token }),
@@ -324,7 +349,7 @@ export default function GameClient({ code }: { code: string }) {
 
   const join = async () => {
     setJoining(true);
-    const res = await fetch(`/api/rooms/${code}/action`, {
+    const res = await fetchWithTimeout(`/api/rooms/${code}/action`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "join", name: name || "Player" }),
@@ -485,7 +510,7 @@ export default function GameClient({ code }: { code: string }) {
       frames: sim.frames.map((f) => f.p),
       sounds: sim.soundEvents,
     });
-    setToast(sim.events);
+    pushMessages(sim.events);
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -798,15 +823,16 @@ export default function GameClient({ code }: { code: string }) {
         </div>
       )}
 
-      {toast.length > 0 && (
+      {/* Message bar — each event line fades in, holds, then fades out and
+          removes itself, so they come and go one at a time. */}
+      {messages.length > 0 && (
         <div className="bottom-safe-toast pointer-events-none absolute inset-x-0 flex flex-col items-center gap-1 px-4">
-          {toast.slice(0, 2).map((e, i) => (
+          {messages.map((m) => (
             <div
-              key={i}
-              className="max-w-[92vw] truncate rounded-full border border-cyan-400/30 bg-black/70 px-4 py-1 text-center text-xs backdrop-blur sm:text-sm"
-              style={{ opacity: i === 0 ? 1 : 0.75 }}
+              key={m.id}
+              className="skellz-msg max-w-[92vw] truncate rounded-full border border-cyan-400/30 bg-black/75 px-4 py-1 text-center text-xs backdrop-blur sm:text-sm"
             >
-              {e}
+              {m.text}
             </div>
           ))}
         </div>
