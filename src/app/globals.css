@@ -24,6 +24,10 @@
 .skellz-msg {
   animation: skellz-msg-in-out 4200ms ease-in-out forwards;
 }
+/* Sits just below the top HUD (the 64px menu button + safe-area inset). */
+.msg-bar {
+  top: max(5rem, calc(env(safe-area-inset-top) + 4.5rem));
+}
 @media (prefers-reduced-motion: reduce) {
   .skellz-msg {
     animation: none;

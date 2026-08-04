@@ -823,14 +823,14 @@ export default function GameClient({ code }: { code: string }) {
         </div>
       )}
 
-      {/* Message bar — each event line fades in, holds, then fades out and
-          removes itself, so they come and go one at a time. */}
+      {/* Message bar — a prominent strip under the top HUD. Each event line
+          fades in, holds, then fades out and removes itself (newest on top). */}
       {messages.length > 0 && (
-        <div className="bottom-safe-toast pointer-events-none absolute inset-x-0 flex flex-col items-center gap-1 px-4">
-          {messages.map((m) => (
+        <div className="msg-bar pointer-events-none absolute inset-x-0 z-30 flex flex-col items-center gap-1.5 px-3">
+          {[...messages].reverse().map((m) => (
             <div
               key={m.id}
-              className="skellz-msg max-w-[92vw] truncate rounded-full border border-cyan-400/30 bg-black/75 px-4 py-1 text-center text-xs backdrop-blur sm:text-sm"
+              className="skellz-msg max-w-[94vw] truncate rounded-xl border border-cyan-400/50 bg-black/80 px-4 py-1.5 text-center text-sm font-bold text-cyan-50 shadow-[0_0_16px_rgba(56,245,255,0.25)] backdrop-blur"
             >
               {m.text}
             </div>
