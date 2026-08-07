@@ -133,6 +133,7 @@ export default function GameClient({ code }: { code: string }) {
   const [showBoard, setShowBoard] = useState(false);
   const [showVoice, setShowVoice] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [lastSeenChat, setLastSeenChat] = useState(0);
   const [kicked, setKicked] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [placedFrom, setPlacedFrom] = useState<{ x: number; z: number } | null>(null);
@@ -901,6 +902,7 @@ export default function GameClient({ code }: { code: string }) {
               </button>
               <button
                 onClick={() => {
+                  setLastSeenChat(data.room.chatSeq);
                   setShowChat(true);
                   setShowMenu(false);
                 }}
@@ -1034,6 +1036,25 @@ export default function GameClient({ code }: { code: string }) {
         >
           <span className="text-xl">🤏</span>
           <span className="mt-0.5 text-[9px] font-black uppercase leading-tight">Tap</span>
+        </button>
+      )}
+
+      {/* Persistent chat button (bottom-right) with an unread badge, so chat is
+          easy to open without digging through the menu. */}
+      {!showChat && !playback && (
+        <button
+          onClick={() => {
+            setLastSeenChat(data.room.chatSeq);
+            setShowChat(true);
+          }}
+          className="bottom-safe pointer-events-auto absolute right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full border-2 border-cyan-400/60 bg-black/80 text-2xl text-cyan-200 shadow-lg active:bg-cyan-400/25"
+        >
+          💬
+          {data.room.chatSeq - lastSeenChat > 0 && (
+            <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">
+              {Math.min(9, data.room.chatSeq - lastSeenChat)}
+            </span>
+          )}
         </button>
       )}
 

@@ -15,7 +15,7 @@ import {
   insideBox,
   panelValueAt,
 } from "../src/game/board";
-import { computeBotShot } from "../src/game/bot";
+import { computeAutoShot, computeBotShot } from "../src/game/bot";
 import { MIN_CHARGE, POWER_CYCLE_MS, powerAt } from "../src/game/power";
 import { makeCap, resolveShot, startPositionFor, type Cap, type GameState } from "../src/game/sim";
 
@@ -158,6 +158,68 @@ test("on the break, bots aim for a middle panel, never box 13", () => {
     const shot = computeBotShot(state, cap, 0, false, () => 0.5);
     assert.ok(shot.why.startsWith("breaking for"), `slot ${slot}: bot should break for a panel, got "${shot.why}"`);
   }
+});
+
+test("a timeout auto-shot before box 1 never swings at a top (would foul)", () => {
+  // Un-armed cap (step 0) with an opponent nearby: it must always go for the
+  // box/panel, never a top — hitting a top before box 1 is an illegal strike.
+  for (let seed = 0; seed < 200; seed++) {
+    const rng = seeded(seed + 1);
+    const state = newState(2);
+    const cap = state.caps[0]; // step 0, at START, un-armed
+    const opp = state.caps[1];
+    opp.onBoard = true;
+    opp.x = cap.x + 5;
+    opp.z = cap.z;
+    const shot = computeAutoShot(state, cap, 0, false, rng);
+    assert.ok(!shot.why.includes("auto-shot at"), `seed ${seed}: un-armed auto-shot must not target a top (${shot.why})`);
+  }
+});
+
+test("a killa's timeout auto-shot always swings at a top", () => {
+  for (let seed = 0; seed < 100; seed++) {
+    const rng = seeded(seed + 1);
+    const state = newState(2);
+    const cap = state.caps[0];
+    cap.killer = true;
+    cap.onBoard = true;
+    cap.x = 0;
+    cap.z = 0;
+    const opp = state.caps[1];
+    opp.onBoard = true;
+    opp.x = 6;
+    opp.z = 0;
+    const shot = computeAutoShot(state, cap, 0, false, rng);
+    assert.ok(shot.why.includes("auto-shot at"), `seed ${seed}: killa auto-shot should hunt a top (${shot.why})`);
+  }
+});
+
+test("the timeout auto-shot genuinely misses about half the time", () => {
+  // Armed cap going for box 5: measure how often it actually lands in the box.
+  // It must be fallible — neither near-perfect nor hopeless.
+  const box5 = boxByNumber(5)!;
+  let attempts = 0;
+  let hits = 0;
+  for (let seed = 0; seed < 800; seed++) {
+    const rng = seeded(seed + 1);
+    const state = newState(2);
+    const cap = state.caps[0];
+    cap.step = 5;
+    cap.onBoard = true;
+    cap.x = box5.x - 4;
+    cap.z = box5.z;
+    state.caps[1].onBoard = true;
+    state.caps[1].x = -140; // opponent out of the way
+    state.caps[1].z = -140;
+    const shot = computeAutoShot(state, cap, 0, false, rng);
+    if (shot.why.includes("auto-shot at")) continue; // this one swung at the top
+    attempts += 1;
+    const res = resolveShot(state, false, false, 0, "0", shot);
+    const [rx, rz] = res.frames.at(-1)!.p[0];
+    if (insideBox(5, rx, rz)) hits += 1;
+  }
+  const rate = hits / attempts;
+  assert.ok(rate > 0.25 && rate < 0.75, `box-hit rate should be roughly 50/50, was ${(rate * 100).toFixed(0)}%`);
 });
 
 test("you cannot strike a top before making box 1", () => {

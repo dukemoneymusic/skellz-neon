@@ -154,3 +154,86 @@ export function computeBotShot(
   // matching it here keeps the bot's own intent honest.
   return { angle, power: cap.stuck ? Math.min(power, 0.3) : power, why: aim.why };
 }
+
+/** Where this cap's own route wants it to go: the middle, a break panel, or a box. */
+function routeAim(cap: Cap): Aim {
+  const target = routeTarget(cap);
+  if (target === null) return { x: 0, z: 0, why: "the middle" };
+  if (cap.step === 0) {
+    // On the break, go for the nearest 2·4·6·8 panel (starts the run from box 3).
+    let best: [number, number] | null = null;
+    let bestD = Infinity;
+    let bestV = 0;
+    for (const p of PANELS) {
+      const [px, pz] = panelCenter(p.v);
+      const d = dist2(cap.x, cap.z, px, pz);
+      if (d < bestD) {
+        bestD = d;
+        best = [px, pz];
+        bestV = p.v;
+      }
+    }
+    if (best) return { x: best[0], z: best[1], why: `the ${bestV}` };
+  }
+  if (target === 13) return { x: 0, z: 0, why: "the middle" };
+  const box = boxByNumber(target);
+  return box ? { x: box.x, z: box.z, why: `box ${target}` } : { x: 0, z: 0, why: "the middle" };
+}
+
+/**
+ * The shot taken when a real player's 45s clock runs out. Deliberately NOT
+ * surgical — it's a coin flip between going for your own box and taking a swing
+ * at an opponent, and either one carries enough scatter that it lands roughly
+ * half the time. So a timeout can whiff the box, or aim at a rival top and miss.
+ *
+ * Guardrails: before you've made box 1 a top-hit is an illegal strike, so an
+ * un-armed cap only ever goes for the box; a killa (whose whole job is hunting)
+ * always swings at a top. The randomness is drawn once on the server and stored
+ * in lastShot, so every client replays the same deterministic result.
+ */
+export function computeAutoShot(
+  state: GameState,
+  cap: Cap,
+  levelIdx: number,
+  teamMode: boolean,
+  rng: () => number = Math.random,
+): BotShot {
+  const armed = isArmed(cap);
+  let opp: Cap | null = null;
+  let bestD = Infinity;
+  for (const e of state.caps) {
+    if (!e.alive || !e.onBoard || e.id === cap.id) continue;
+    if (teamMode && e.team === cap.team) continue;
+    const d = dist2(cap.x, cap.z, e.x, e.z);
+    if (d < bestD) {
+      bestD = d;
+      opp = e;
+    }
+  }
+
+  // Coin flip: box vs. opponent (with the guardrails above).
+  const goForTop = armed && !!opp && (cap.killer || rng() < 0.5);
+  let aim: Aim;
+  if (goForTop && opp) {
+    aim = { x: opp.x, z: opp.z, why: `auto-shot at ${opp.name}` };
+  } else {
+    const r = routeAim(cap);
+    aim = { x: r.x, z: r.z, why: `auto-shot for ${r.why}` };
+  }
+
+  // Enough scatter that it genuinely misses about half the time.
+  const err = 2.4;
+  const dx = aim.x - cap.x + (rng() * 2 - 1) * err;
+  const dz = aim.z - cap.z + (rng() * 2 - 1) * err;
+  const dist = Math.hypot(dx, dz);
+  const angle = Math.atan2(dz, dx);
+
+  const friction = frictionFor(levelIdx);
+  // Swinging at a top: lean a little long so it can actually make contact.
+  // Going for a box: aim to stop on it. Plus a dash of strength scatter.
+  const reach = goForTop ? 1.12 : 1.0;
+  const strengthError = 1 + (rng() * 2 - 1) * 0.16;
+  const power = clamp(powerForDistance(dist, friction) * reach * strengthError, 0.05, 1);
+
+  return { angle, power: cap.stuck ? Math.min(power, 0.3) : power, why: aim.why };
+}

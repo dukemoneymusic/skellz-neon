@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { LAST_LEVEL, MAX_PLAYERS, clampBehindStart } from "@/game/board";
-import { computeBotShot } from "@/game/bot";
+import { computeAutoShot, computeBotShot } from "@/game/bot";
 import { COLORS, COLORS2 } from "@/game/colors";
 import { makeCap, resolveShot, type Cap, type ShotInput } from "@/game/sim";
 import { recordGame } from "@/server/leaderboard";
@@ -519,9 +519,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
       const cap = room.state.caps.find((c) => c.id === currentId);
       if (!cap?.alive || cap.stuck) return NextResponse.json({ error: "Nothing to auto-shoot" }, { status: 400 });
 
-      // Aim cleanly at the target box (no jitter) — the same maths the CPU uses.
-      const shot = computeBotShot(room.state, cap, room.level, room.teamMode, () => 0.5);
-      addChat(room, "SKELLZ", "#facc15", `${currentPlayer?.name ?? "A player"} ran out of time — auto-shot.`);
+      // A fallible auto-shot: coin flip between going for the box and swinging
+      // at an opponent, with enough scatter to miss either — it is NOT a free
+      // guaranteed box.
+      const shot = computeAutoShot(room.state, cap, room.level, room.teamMode);
+      addChat(room, "SKELLZ", "#facc15", `${currentPlayer?.name ?? "A player"} ran out of time — auto-shot!`);
       const { result, seq } = applyShot(room, roster, currentId, { angle: shot.angle, power: shot.power });
       return NextResponse.json({ ok: true, auto: true, events: result.events, seq, soundEvents: result.soundEvents });
     }

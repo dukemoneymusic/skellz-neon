@@ -19,6 +19,14 @@ export default function ChatPanel({
 }) {
   const [text, setText] = useState("");
   const listRef = useRef<HTMLDivElement | null>(null);
+  // The tap that opened this panel can fire a delayed "ghost click" ~300ms
+  // later that lands on the backdrop and closes it instantly. Ignore backdrop
+  // taps until the panel has been up long enough for that to have passed. Set
+  // in an effect (not during render, which must stay pure).
+  const openedAt = useRef(0);
+  useEffect(() => {
+    openedAt.current = Date.now();
+  }, []);
 
   // Keep the newest line in view.
   useEffect(() => {
@@ -34,7 +42,12 @@ export default function ChatPanel({
   };
 
   return (
-    <div className="pad-safe absolute inset-0 z-50 grid place-items-end bg-black/70 sm:place-items-center" onClick={onClose}>
+    <div
+      className="pad-safe absolute inset-0 z-50 grid place-items-end bg-black/70 sm:place-items-center"
+      onClick={() => {
+        if (Date.now() - openedAt.current > 450) onClose();
+      }}
+    >
       <div
         className="flex h-[70vh] w-full max-w-md flex-col rounded-3xl border border-cyan-400/25 bg-[#0a0f1c] p-4"
         onClick={(e) => e.stopPropagation()}
