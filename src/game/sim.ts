@@ -767,11 +767,12 @@ export function resolveShot(
       if (synced && !isKiller) {
         const board = teamCaps.filter((c) => !c.killer && c.alive);
         if (board.length > 1) {
-          // The leader keeps exactly where it came to rest; the rest ring around.
+          // The leader keeps exactly where it came to rest; the rest ring around
+          // it with plenty of clear air so a teammate's flick doesn't instantly
+          // clip a neighbour. `gap` is the centre-to-centre spacing along the
+          // ring — well beyond a cap's 2·CAP_R width so there's room to shoot.
           const followers = board.filter((c) => c.id !== leader.id);
-          // Radius large enough that neighbours on the ring never overlap
-          // (a cap is 2·CAP_R across), and it grows with the crowd.
-          const gap = CAP_R * 2 + 0.5;
+          const gap = CAP_R * 2 + 2.6; // ~2.4 units of clear space between tops
           const radius = Math.max(gap, (followers.length * gap) / (2 * Math.PI));
           followers.forEach((c, i) => {
             const ang = (i / followers.length) * Math.PI * 2 + 0.3;

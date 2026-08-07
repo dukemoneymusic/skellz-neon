@@ -15,6 +15,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ code: string }>
     const me = roster.find((p) => p.token === token) ?? null;
     if (me) updatePlayer(me, { lastSeen: Date.now() });
 
+    // Tell a kicked client so it can bounce back to the menu.
+    const kicked = !me && token.length > 0 && room.kicked.has(token);
+
     return NextResponse.json({
       room: {
         code: room.code,
@@ -26,7 +29,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ code: string }>
         turnIndex: room.turnIndex,
         seq: room.seq,
         winner: room.winner,
+        turnStartedAt: room.turnStartedAt,
+        chatSeq: room.chatSeq,
       },
+      chat: room.chat,
+      kicked,
       players: roster.map((p) => ({
         id: String(p.id),
         name: p.name,

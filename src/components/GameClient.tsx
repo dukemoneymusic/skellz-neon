@@ -2,7 +2,9 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ChatPanel from "@/components/ChatPanel";
 import Leaderboard from "@/components/Leaderboard";
 import VoicePanel from "@/components/VoicePanel";
 import type { Playback } from "@/components/Scene";
@@ -59,10 +61,21 @@ type RoomInfo = {
   turnIndex: number;
   seq: number;
   winner: string | null;
+  turnStartedAt: number;
+  chatSeq: number;
 };
 type MeInfo = { id: string; name: string; team: number; isHost: boolean; canControl: boolean; color: string; color2: string };
 type LastShot = { seq: number; shooterId: string; angle: number; power: number; events: string[] };
-type Payload = { room: RoomInfo; players: PlayerInfo[]; state: GameState; lastShot: LastShot | null; me: MeInfo | null };
+type ChatMsg = { id: number; name: string; color: string; text: string; t: number };
+type Payload = {
+  room: RoomInfo;
+  players: PlayerInfo[];
+  state: GameState;
+  lastShot: LastShot | null;
+  me: MeInfo | null;
+  chat: ChatMsg[];
+  kicked: boolean;
+};
 
 const EMPTY: GameState = { caps: [], log: [] };
 const POLL_MS = 1200;
@@ -70,6 +83,8 @@ const POLL_MS = 1200;
 const BOT_THINK_MS = 1100;
 /** How long each message stays up before it fades out. */
 const MSG_LIFETIME_MS = 4200;
+/** A real player's turn auto-shoots to its box after this long (mirrors server). */
+const AUTO_SHOOT_MS = 45_000;
 /** Give every fetch a hard ceiling. Without this a hung request on a flaky
  *  phone connection blocks the poll loop (which awaits each poll before
  *  scheduling the next) — the board freezes and you "can't shoot any more". */
@@ -117,6 +132,8 @@ export default function GameClient({ code }: { code: string }) {
   const [showStandings, setShowStandings] = useState(false);
   const [showBoard, setShowBoard] = useState(false);
   const [showVoice, setShowVoice] = useState(false);
+  const [showChat, setShowChat] = useState(false);
+  const [kicked, setKicked] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [placedFrom, setPlacedFrom] = useState<{ x: number; z: number } | null>(null);
   const [quiet, setQuiet] = useState(false);
@@ -179,6 +196,12 @@ export default function GameClient({ code }: { code: string }) {
       setNotFound(false);
       const json = (await res.json()) as Payload;
 
+      // The host kicked us — bounce back to the main menu.
+      if (json.kicked) {
+        setKicked(true);
+        return;
+      }
+
       // The room exists but has rewound behind what we last saw — the server
       // restarted and re-created a public room from scratch. Same fix.
       const snap = snapshotRef.current;
@@ -194,7 +217,7 @@ export default function GameClient({ code }: { code: string }) {
       // cover the roster too, not just seq.
       const r = json.room;
       const sig =
-        `${r.seq}|${r.status}|${r.turnIndex}|${r.winner}|${r.level}|${r.storyScore}|${json.me?.canControl}|` +
+        `${r.seq}|${r.status}|${r.turnIndex}|${r.winner}|${r.level}|${r.storyScore}|${r.chatSeq}|${json.me?.canControl}|` +
         json.players.map((p) => `${p.id}:${p.name}:${p.team}:${p.color}:${p.color2}:${p.isHost}:${p.isBot}`).join(",");
       if (sig !== lastSigRef.current) {
         lastSigRef.current = sig;
@@ -388,6 +411,73 @@ export default function GameClient({ code }: { code: string }) {
     [data?.players],
   );
   const voice = useVoiceChat(code, token, voiceMyId, voicePeerIds);
+
+  const router = useRouter();
+
+  // Quit back to the main menu. Tell the server so our top is taken off the
+  // board and the rest can carry on, then leave voice and navigate home.
+  const quit = useCallback(() => {
+    if (voice.active) voice.leave();
+    if (token) act({ action: "leave" }, { silent: true });
+    router.push("/");
+  }, [voice, token, act, router]);
+
+  // Host removes a player mid-game; the match continues without them.
+  const kick = useCallback(
+    (playerId: number) => {
+      act({ action: "kick", playerId });
+    },
+    [act],
+  );
+
+  const chatSeqRef = useRef(-1);
+
+  // Turn clock: how many seconds the current player has left before their top
+  // auto-shoots to its box. Real players only — bots run on their own timer.
+  const [turnLeft, setTurnLeft] = useState<number | null>(null);
+  const autoFiredSeq = useRef(-1);
+  const turnStartedAt = data?.room.turnStartedAt ?? 0;
+
+  useEffect(() => {
+    const tick = () => {
+      const off = roomStatus !== "playing" || isBotTurn || !turnStartedAt;
+      const left = off ? null : Math.max(0, Math.ceil((AUTO_SHOOT_MS - (Date.now() - turnStartedAt)) / 1000));
+      setTurnLeft(left);
+      // Anyone can nudge the server to auto-shoot once the clock is up — the
+      // server enforces the 45s and the seq guard, so exactly one fires even
+      // if the current player has dropped offline.
+      if (left !== null && left <= 0 && autoFiredSeq.current !== roomSeq && !busy) {
+        autoFiredSeq.current = roomSeq;
+        act({ action: "auto_shot", seq: roomSeq }, { silent: true }).then((r) => {
+          if (r) poll();
+        });
+      }
+    };
+    // First tick on a macrotask (not synchronously in the effect body), then
+    // every 500ms.
+    const t0 = setTimeout(tick, 0);
+    const t = setInterval(tick, 500);
+    return () => {
+      clearTimeout(t0);
+      clearInterval(t);
+    };
+  }, [roomStatus, isBotTurn, turnStartedAt, roomSeq, busy, act, poll]);
+
+  // Surface new chat lines in the on-board message bar too, so you don't have
+  // to open the chat panel to see them.
+  useEffect(() => {
+    if (!data) return;
+    const cs = data.room.chatSeq;
+    if (chatSeqRef.current < 0) {
+      chatSeqRef.current = cs; // first load — don't replay the backlog
+      return;
+    }
+    if (cs > chatSeqRef.current) {
+      const fresh = (data.chat ?? []).slice(-(cs - chatSeqRef.current));
+      if (!showChat) pushMessages(fresh.map((m) => `💬 ${m.name}: ${m.text}`));
+      chatSeqRef.current = cs;
+    }
+  }, [data, showChat, pushMessages]);
 
   // Free placement behind the START line — offered only on the genuine first
   // break, when the top is still staged at the line (step 0, not yet on the
@@ -647,6 +737,21 @@ export default function GameClient({ code }: { code: string }) {
     [caps],
   );
 
+  if (kicked) {
+    return (
+      <div className="grid h-dvh place-items-center bg-[#05070d] px-6 text-center text-white">
+        <div>
+          <div className="text-5xl">🚪</div>
+          <h1 className="mt-2 text-3xl font-black text-rose-400">Removed from the game</h1>
+          <p className="mt-2 text-sm text-white/60">The host removed you from this room.</p>
+          <Link href="/" className="mt-5 inline-block rounded-xl bg-cyan-400 px-6 py-3 font-black text-black">
+            Back to the menu
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (notFound) {
     return (
       <div className="grid h-dvh place-items-center bg-[#05070d] px-6 text-center text-white">
@@ -796,6 +901,24 @@ export default function GameClient({ code }: { code: string }) {
               </button>
               <button
                 onClick={() => {
+                  setShowChat(true);
+                  setShowMenu(false);
+                }}
+                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-left text-xs"
+              >
+                💬 Chat
+              </button>
+              <button
+                onClick={() => {
+                  setShowMenu(false);
+                  quit();
+                }}
+                className="rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-left text-xs font-bold text-rose-200"
+              >
+                🚪 Quit to menu
+              </button>
+              <button
+                onClick={() => {
                   setShowRules(true);
                   setShowMenu(false);
                 }}
@@ -811,20 +934,33 @@ export default function GameClient({ code }: { code: string }) {
       {showStandings && (
         <div className="pointer-events-none absolute inset-x-0 top-14 flex justify-center px-2.5">
           <div className="pointer-events-auto w-full max-w-xs rounded-2xl border border-white/10 bg-black/70 p-2 text-[11px] backdrop-blur">
-            {standings.map((c) => (
-              <div key={c.id} className="py-[3px]">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-white/40"
-                    style={{ background: `linear-gradient(90deg, ${c.color} 50%, ${c.color2} 50%)` }}
-                  />
-                  <span className={c.alive ? "" : "line-through opacity-40"}>{c.name}</span>
-                  {data.room.teamMode && <span className="opacity-50">T{c.team + 1}</span>}
-                  {c.stuck && <span className="text-rose-400">💀{c.stuckValue}</span>}
-                  <span className="ml-auto font-mono opacity-70">{legText(c)}</span>
+            {standings.map((c) => {
+              const p = data.players.find((pl) => pl.id === c.id);
+              const canKick = canControl && !!p && !p.isBot && c.id !== myId && c.alive;
+              return (
+                <div key={c.id} className="py-[3px]">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-white/40"
+                      style={{ background: `linear-gradient(90deg, ${c.color} 50%, ${c.color2} 50%)` }}
+                    />
+                    <span className={c.alive ? "" : "line-through opacity-40"}>{c.name}</span>
+                    {data.room.teamMode && <span className="opacity-50">T{c.team + 1}</span>}
+                    {c.stuck && <span className="text-rose-400">💀{c.stuckValue}</span>}
+                    <span className="ml-auto font-mono opacity-70">{legText(c)}</span>
+                    {canKick && (
+                      <button
+                        onClick={() => kick(Number(c.id))}
+                        className="rounded border border-rose-400/50 bg-rose-500/15 px-1.5 text-[10px] font-bold text-rose-200"
+                        title={`Remove ${c.name}`}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -839,8 +975,22 @@ export default function GameClient({ code }: { code: string }) {
             ) : (
               <span className="text-white/70">
                 {caps.find((c) => c.id === turnId)?.name ?? "…"} is {isBotTurn ? "thinking" : "shooting"}
+                {turnLeft !== null && !isBotTurn ? <span className="ml-1 text-amber-300">· ⏱ {turnLeft}s</span> : null}
               </span>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Your turn: a prominent countdown. At 0 your top auto-shoots to its box. */}
+      {isMyTurn && data.room.status === "playing" && turnLeft !== null && (
+        <div className="bottom-safe-sm pointer-events-none absolute inset-x-0 flex justify-center px-3">
+          <div
+            className={`rounded-full border px-4 py-1.5 text-sm font-black backdrop-blur ${
+              turnLeft <= 10 ? "border-rose-400/60 bg-rose-500/20 text-rose-100" : "border-cyan-400/40 bg-black/60 text-cyan-100"
+            }`}
+          >
+            ⏱ Your shot — {turnLeft}s
           </div>
         </div>
       )}
@@ -1066,6 +1216,14 @@ export default function GameClient({ code }: { code: string }) {
 
       {showVoice && (
         <VoicePanel voice={voice} players={data.players} myId={myId} onClose={() => setShowVoice(false)} />
+      )}
+
+      {showChat && (
+        <ChatPanel
+          messages={data.chat ?? []}
+          onSend={(text) => act({ action: "chat", text })}
+          onClose={() => setShowChat(false)}
+        />
       )}
 
       {showColors && data.me && (

@@ -7,12 +7,14 @@ import { makeCap, resolveShot, type Cap, type ShotInput } from "@/game/sim";
 import { recordGame } from "@/server/leaderboard";
 import { isPendingToken, pendingTokenFor, shouldAdoptSnapshot, validateSnapshot } from "@/server/restore";
 import {
+  addChat,
   addPlayer,
   canControl,
   getOrCreateRoom,
   getRoom,
   listPlayers,
   putRoom,
+  removePlayer,
   reserveRoomId,
   updatePlayer,
   updateRoom,
@@ -34,7 +36,11 @@ type Body = {
     | "color"
     | "next_level"
     | "add_bot"
-    | "restore";
+    | "restore"
+    | "chat"
+    | "kick"
+    | "leave"
+    | "auto_shot";
   name?: string;
   token?: string;
   team?: number;
@@ -46,7 +52,11 @@ type Body = {
   seq?: number;
   snapshot?: unknown;
   from?: { x?: number; z?: number };
+  text?: string;
 };
+
+/** A human turn auto-shoots to the target box after this long. */
+const AUTO_SHOOT_MS = 45_000;
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -92,6 +102,9 @@ function applyShot(room: Room, roster: Player[], shooterId: string, input: ShotI
     state: result.state,
     turnIndex: nextIndex,
     seq,
+    // Every shot restarts the current player's 45s clock — whether the turn
+    // passed on or the shooter earned another go.
+    turnStartedAt: Date.now(),
     status: result.finished ? "finished" : "playing",
     winner: result.winner,
     storyScore,
@@ -183,6 +196,11 @@ function restoreRoom(code: string, body: Body) {
       hostToken: host && host.id === snap.meId ? token : pendingTokenFor(host?.id ?? 0),
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      turnStartedAt: Date.now(),
+      chat: [],
+      chatSeq: 0,
+      nextChatId: 1,
+      kicked: new Set<string>(),
       ...fields,
     });
   } else if (adopt) {
@@ -348,6 +366,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
         state: { caps: freshCaps(room, roster), log: ["Game on! Flick from START for box 1."] },
         turnIndex: 0,
         seq: room.seq + 1,
+        turnStartedAt: Date.now(),
         lastShot: null,
         winner: null,
         storyScore: 0,
@@ -367,6 +386,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
         state: { caps: freshCaps(room, roster), log: ["Next borough! Flick from START."] },
         turnIndex: 0,
         seq: room.seq + 1,
+        turnStartedAt: Date.now(),
         lastShot: null,
         winner: null,
         level: room.level + 1,
@@ -450,6 +470,60 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
 
       const { result, seq } = applyShot(room, roster, currentId, { angle, power });
       return NextResponse.json({ ok: true, events: result.events, seq, soundEvents: result.soundEvents });
+    }
+
+    // -------- game chat --------
+    if (body.action === "chat") {
+      const text = (body.text ?? "").trim();
+      if (!text) return NextResponse.json({ error: "Empty message" }, { status: 400 });
+      addChat(room, me.name, me.color, text);
+      return NextResponse.json({ ok: true, chatSeq: room.chatSeq });
+    }
+
+    // -------- host kicks a player; the game carries on --------
+    if (body.action === "kick") {
+      if (!isController) return NextResponse.json({ error: "Only the host can kick" }, { status: 403 });
+      if (typeof body.playerId !== "number") return NextResponse.json({ error: "No player" }, { status: 400 });
+      if (body.playerId === me.id) return NextResponse.json({ error: "You can't kick yourself" }, { status: 400 });
+      const target = roster.find((p) => p.id === body.playerId);
+      if (!target) return NextResponse.json({ error: "No such player" }, { status: 404 });
+      addChat(room, "SKELLZ", "#ff5c8a", `${target.name} was removed by the host.`);
+      removePlayer(room, roster, body.playerId, true);
+      return NextResponse.json({ ok: true });
+    }
+
+    // -------- a player quits back to the menu --------
+    if (body.action === "leave") {
+      if (room.status !== "lobby") {
+        addChat(room, "SKELLZ", "#6ff2ff", `${me.name} left the game.`);
+        removePlayer(room, roster, me.id, false);
+      } else {
+        // In the lobby there's no cap yet — just drop the seat.
+        removePlayer(room, roster, me.id, false);
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // -------- 45s ran out on a human turn: auto-shoot to the target box --------
+    if (body.action === "auto_shot") {
+      if (room.status !== "playing") return NextResponse.json({ error: "Game is not running" }, { status: 400 });
+      if (typeof body.seq === "number" && body.seq !== room.seq)
+        return NextResponse.json({ error: "Stale turn" }, { status: 409 });
+      // Enforce the clock server-side so no client can auto-fire early.
+      if (Date.now() - room.turnStartedAt < AUTO_SHOOT_MS)
+        return NextResponse.json({ error: "Not idle yet" }, { status: 409 });
+      const currentId = currentCapId(room);
+      if (!currentId) return NextResponse.json({ error: "No caps" }, { status: 400 });
+      const currentPlayer = roster.find((p) => String(p.id) === currentId);
+      if (currentPlayer?.isBot) return NextResponse.json({ error: "That is a CPU turn" }, { status: 400 });
+      const cap = room.state.caps.find((c) => c.id === currentId);
+      if (!cap?.alive || cap.stuck) return NextResponse.json({ error: "Nothing to auto-shoot" }, { status: 400 });
+
+      // Aim cleanly at the target box (no jitter) — the same maths the CPU uses.
+      const shot = computeBotShot(room.state, cap, room.level, room.teamMode, () => 0.5);
+      addChat(room, "SKELLZ", "#facc15", `${currentPlayer?.name ?? "A player"} ran out of time — auto-shot.`);
+      const { result, seq } = applyShot(room, roster, currentId, { angle: shot.angle, power: shot.power });
+      return NextResponse.json({ ok: true, auto: true, events: result.events, seq, soundEvents: result.soundEvents });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });

@@ -24,6 +24,8 @@ export type LastShot = {
   before: { id: string; x: number; z: number }[];
 };
 
+export type ChatMsg = { id: number; name: string; color: string; text: string; t: number };
+
 export type Room = {
   id: number;
   code: string;
@@ -40,6 +42,14 @@ export type Room = {
   winner: string | null;
   createdAt: number;
   updatedAt: number;
+  /** When the current player's turn began — drives the 45s auto-shoot timer. */
+  turnStartedAt: number;
+  /** Recent game chat, newest last; bumped chatSeq lets clients notice new lines. */
+  chat: ChatMsg[];
+  chatSeq: number;
+  nextChatId: number;
+  /** Tokens the host has kicked, so their own client can be told and sent home. */
+  kicked: Set<string>;
 };
 
 export type Player = {
@@ -146,9 +156,78 @@ export function createRoom(init: {
     winner: null,
     createdAt: now,
     updatedAt: now,
+    turnStartedAt: now,
+    chat: [],
+    chatSeq: 0,
+    nextChatId: 1,
+    kicked: new Set(),
   };
   store.rooms.set(room.code, room);
   return room;
+}
+
+/** Append a chat line and let clients notice it via the bumped chatSeq. */
+export function addChat(room: Room, name: string, color: string, text: string) {
+  const msg: ChatMsg = { id: room.nextChatId++, name: name.slice(0, 14), color, text: text.slice(0, 160), t: Date.now() };
+  room.chat = [...room.chat, msg].slice(-40);
+  room.chatSeq += 1;
+  room.updatedAt = Date.now();
+  return msg;
+}
+
+/**
+ * Remove a player from a live room (host kick, or self-quit). Their cap is
+ * taken off the board so the remaining players' game carries on, the turn is
+ * nudged along if it was theirs, and the player row is deleted.
+ */
+export function removePlayer(room: Room, roster: Player[], targetId: number, kicked: boolean) {
+  const target = roster.find((p) => p.id === targetId);
+  if (!target) return;
+  if (kicked) room.kicked.add(target.token);
+
+  // Take their cap out of play (kept in the array so turn indices stay stable).
+  const caps = room.state.caps.map((c) => (c.id === String(targetId) ? { ...c, alive: false } : c));
+  room.state = { ...room.state, caps };
+
+  // Delete the player row.
+  for (const [id, p] of store.players) if (p.id === targetId) store.players.delete(id);
+
+  // If it was their turn, hand it to the next living, un-stuck cap.
+  const order = room.state.caps.map((c) => c.id);
+  if (order.length > 0 && order[room.turnIndex % order.length] === String(targetId)) {
+    for (let i = 1; i <= order.length; i++) {
+      const idx = (room.turnIndex + i) % order.length;
+      const cap = room.state.caps.find((c) => c.id === order[idx]);
+      if (cap?.alive && !cap.stuck) {
+        room.turnIndex = idx;
+        break;
+      }
+    }
+    room.turnStartedAt = Date.now();
+  }
+
+  // Losing a player can end the match (last one standing / last team standing).
+  if (room.status === "playing") {
+    const alive = room.state.caps.filter((c) => c.alive);
+    if (room.mode === "story") {
+      if (alive.length === 0) {
+        room.status = "finished";
+        room.winner = "Nobody";
+      }
+    } else if (room.teamMode) {
+      const teams = new Set(alive.map((c) => c.team));
+      if (teams.size <= 1 && room.state.caps.length > 1) {
+        room.status = "finished";
+        room.winner = teams.size === 1 ? `Team ${[...teams][0] + 1}` : "Nobody";
+      }
+    } else if (alive.length <= 1 && room.state.caps.length > 1) {
+      room.status = "finished";
+      room.winner = alive[0]?.name ?? "Nobody";
+    }
+  }
+
+  room.seq += 1;
+  room.updatedAt = Date.now();
 }
 
 /** Fetch a room, conjuring the permanent public rooms into existence on demand. */
