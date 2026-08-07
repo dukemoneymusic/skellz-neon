@@ -15,9 +15,46 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * Controls: mute your own mic, and mute any other player locally.
  */
 
-const STUN: RTCConfiguration = {
-  iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }],
-};
+/**
+ * ICE servers.
+ *
+ * STUN alone only connects when at least one peer has a permissive NAT. On many
+ * mobile/carrier networks (symmetric NAT) the audio can't find a direct path
+ * and the call silently fails — so we also list TURN relays, which bounce the
+ * audio through a server when a direct path is impossible.
+ *
+ * The TURN entries default to Metered's free public "OpenRelay" servers (no
+ * account needed) and can be overridden at build time for a private, reliable
+ * relay by setting NEXT_PUBLIC_TURN_URL / _USER / _CRED. Dead servers just get
+ * skipped during ICE, so listing extras never hurts.
+ */
+function iceConfig(): RTCConfiguration {
+  const servers: RTCIceServer[] = [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+  ];
+  const turnUrl = process.env.NEXT_PUBLIC_TURN_URL;
+  if (turnUrl) {
+    servers.push({
+      urls: turnUrl.split(",").map((u) => u.trim()),
+      username: process.env.NEXT_PUBLIC_TURN_USER,
+      credential: process.env.NEXT_PUBLIC_TURN_CRED,
+    });
+  } else {
+    // Free public fallback relays (best-effort; may be rate-limited).
+    servers.push({
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp",
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    });
+  }
+  return { iceServers: servers };
+}
+
+const STUN = iceConfig();
 
 /** While voice is on we poll our mailbox faster than the game (handshake speed). */
 const SIGNAL_POLL_MS = 700;
@@ -31,6 +68,7 @@ type Peer = {
   makingOffer: boolean;
   pendingIce: RTCIceCandidateInit[];
   remoteSet: boolean;
+  iceRetries: number; // bounded ICE-restart attempts on failure
 };
 
 export type VoiceState = {
@@ -118,7 +156,7 @@ export function useVoiceChat(code: string, token: string | null, myId: number | 
       (audio as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
       document.body.appendChild(audio);
 
-      peer = { pc, audio, polite: myId > id, makingOffer: false, pendingIce: [], remoteSet: false };
+      peer = { pc, audio, polite: myId > id, makingOffer: false, pendingIce: [], remoteSet: false, iceRetries: 0 };
       peers.current.set(id, peer);
       setStatus(id, "connecting");
 
@@ -137,8 +175,27 @@ export function useVoiceChat(code: string, token: string | null, myId: number | 
       pc.onconnectionstatechange = () => {
         const st = pc.connectionState;
         if (st === "connected") setStatus(id, "live");
-        else if (st === "failed") setStatus(id, "failed");
-        else if (st === "disconnected") setStatus(id, "connecting");
+        else if (st === "failed") {
+          setStatus(id, "failed");
+          // Don't stay dead: the offerer restarts ICE (re-runs the whole
+          // candidate search, now able to fall back to the TURN relays), which
+          // rescues most transient or NAT-change failures.
+          if (!peer!.polite && peer!.iceRetries < 3) {
+            peer!.iceRetries += 1;
+            setStatus(id, "connecting");
+            (async () => {
+              try {
+                peer!.makingOffer = true;
+                await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
+                post(id, "offer", pc.localDescription);
+              } catch {
+                /* will retry on the next failure */
+              } finally {
+                peer!.makingOffer = false;
+              }
+            })();
+          }
+        } else if (st === "disconnected") setStatus(id, "connecting");
       };
       // The initiator (lower id) kicks off the offer.
       pc.onnegotiationneeded = async () => {
