@@ -4,12 +4,14 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Leaderboard from "@/components/Leaderboard";
+import VoicePanel from "@/components/VoicePanel";
 import type { Playback } from "@/components/Scene";
 import { PLAYBACK_FPS, resolveShot, routeTarget, type Cap, type GameState } from "@/game/sim";
 import { LAST_LEVEL, LEVELS, MAX_PLAYERS, boxByNumber, clampBehindStart, legOf } from "@/game/board";
 import { isMuted, playShootSound, setMuted, unlockAudio } from "@/game/audio";
 import { MIN_CHARGE, powerAt } from "@/game/power";
 import { useRoomToken, useStoredName } from "@/game/session";
+import { useVoiceChat } from "@/game/useVoiceChat";
 
 const SWATCHES = [
   "#ff3b6b",
@@ -114,6 +116,7 @@ export default function GameClient({ code }: { code: string }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showStandings, setShowStandings] = useState(false);
   const [showBoard, setShowBoard] = useState(false);
+  const [showVoice, setShowVoice] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [placedFrom, setPlacedFrom] = useState<{ x: number; z: number } | null>(null);
   const [quiet, setQuiet] = useState(false);
@@ -376,6 +379,15 @@ export default function GameClient({ code }: { code: string }) {
   const isBotTurn = !!activePlayer?.isBot;
   const roomSeq = data?.room.seq ?? -1;
   const roomStatus = data?.room.status ?? "";
+
+  // Real-time peer-to-peer voice chat. The id list drives the mesh: connect to
+  // every human in the room, drop anyone who leaves.
+  const voiceMyId = data?.me ? Number(data.me.id) : null;
+  const voicePeerIds = useMemo(
+    () => (data?.players ?? []).filter((p) => !p.isBot).map((p) => Number(p.id)),
+    [data?.players],
+  );
+  const voice = useVoiceChat(code, token, voiceMyId, voicePeerIds);
 
   // Free placement behind the START line — offered only on the genuine first
   // break, when the top is still staged at the line (step 0, not yet on the
@@ -774,6 +786,16 @@ export default function GameClient({ code }: { code: string }) {
               </button>
               <button
                 onClick={() => {
+                  unlockAudio();
+                  setShowVoice(true);
+                  setShowMenu(false);
+                }}
+                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-left text-xs"
+              >
+                {voice.active ? "🎙️ Voice: on" : "🎙️ Voice chat"}
+              </button>
+              <button
+                onClick={() => {
                   setShowRules(true);
                   setShowMenu(false);
                 }}
@@ -1040,6 +1062,10 @@ export default function GameClient({ code }: { code: string }) {
 
       {showBoard && (
         <Leaderboard onClose={() => setShowBoard(false)} highlight={data.me ? [data.me.name] : []} />
+      )}
+
+      {showVoice && (
+        <VoicePanel voice={voice} players={data.players} myId={myId} onClose={() => setShowVoice(false)} />
       )}
 
       {showColors && data.me && (
