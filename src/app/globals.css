@@ -28,6 +28,10 @@
 .msg-bar {
   top: max(5rem, calc(env(safe-area-inset-top) + 4.5rem));
 }
+/* Chat pop-ups sit low on the screen, above the bottom controls / safe area. */
+.chat-toasts {
+  bottom: max(11rem, calc(env(safe-area-inset-bottom) + 9.5rem));
+}
 @media (prefers-reduced-motion: reduce) {
   .skellz-msg {
     animation: none;

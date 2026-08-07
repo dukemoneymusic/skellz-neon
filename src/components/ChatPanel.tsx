@@ -43,13 +43,15 @@ export default function ChatPanel({
 
   return (
     <div
-      className="pad-safe absolute inset-0 z-50 grid place-items-end bg-black/70 sm:place-items-center"
+      // See-through backdrop so the game stays visible behind the chat.
+      className="pad-safe absolute inset-0 z-50 grid place-items-end bg-black/20 sm:place-items-center"
       onClick={() => {
         if (Date.now() - openedAt.current > 450) onClose();
       }}
     >
       <div
-        className="flex h-[70vh] w-full max-w-md flex-col rounded-3xl border border-cyan-400/25 bg-[#0a0f1c] p-4"
+        // Translucent, blurred panel — you can still watch the game through it.
+        className="flex h-[62vh] w-full max-w-md flex-col rounded-3xl border border-cyan-400/30 bg-[#0a0f1c]/55 p-4 shadow-2xl backdrop-blur-md"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">

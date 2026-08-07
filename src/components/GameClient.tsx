@@ -83,6 +83,8 @@ const POLL_MS = 1200;
 const BOT_THINK_MS = 1100;
 /** How long each message stays up before it fades out. */
 const MSG_LIFETIME_MS = 4200;
+/** Chat pop-ups linger a bit longer so there's time to read them. */
+const CHAT_TOAST_MS = 6500;
 /** A real player's turn auto-shoots to its box after this long (mirrors server). */
 const AUTO_SHOOT_MS = 45_000;
 /** Give every fetch a hard ceiling. Without this a hung request on a flaky
@@ -125,6 +127,7 @@ export default function GameClient({ code }: { code: string }) {
   const [view, setView] = useState<GameState>(EMPTY);
   const [playback, setPlayback] = useState<Playback | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [chatToasts, setChatToasts] = useState<Msg[]>([]);
   const [sending, setSending] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [showColors, setShowColors] = useState(false);
@@ -283,6 +286,18 @@ export default function GameClient({ code }: { code: string }) {
     setMessages((prev) => [...prev, ...items].slice(-5));
     for (const it of items) {
       setTimeout(() => setMessages((prev) => prev.filter((m) => m.id !== it.id)), MSG_LIFETIME_MS);
+    }
+  }, []);
+
+  // Chat pop-ups live at the BOTTOM of the screen (separate from the top game
+  // feed) and linger a little longer so you have time to read what was said.
+  const pushChatToast = useCallback((texts: string[] | undefined) => {
+    if (!texts?.length) return;
+    const items = texts.filter(Boolean).map((text) => ({ id: ++msgSeq, text }));
+    if (!items.length) return;
+    setChatToasts((prev) => [...prev, ...items].slice(-4));
+    for (const it of items) {
+      setTimeout(() => setChatToasts((prev) => prev.filter((m) => m.id !== it.id)), CHAT_TOAST_MS);
     }
   }, []);
 
@@ -464,8 +479,8 @@ export default function GameClient({ code }: { code: string }) {
     };
   }, [roomStatus, isBotTurn, turnStartedAt, roomSeq, busy, act, poll]);
 
-  // Surface new chat lines in the on-board message bar too, so you don't have
-  // to open the chat panel to see them.
+  // Pop new chat lines up at the bottom of the screen so you can read what
+  // was said without opening the chat panel.
   useEffect(() => {
     if (!data) return;
     const cs = data.room.chatSeq;
@@ -475,10 +490,10 @@ export default function GameClient({ code }: { code: string }) {
     }
     if (cs > chatSeqRef.current) {
       const fresh = (data.chat ?? []).slice(-(cs - chatSeqRef.current));
-      if (!showChat) pushMessages(fresh.map((m) => `💬 ${m.name}: ${m.text}`));
+      if (!showChat) pushChatToast(fresh.map((m) => `${m.name}: ${m.text}`));
       chatSeqRef.current = cs;
     }
-  }, [data, showChat, pushMessages]);
+  }, [data, showChat, pushChatToast]);
 
   // Free placement behind the START line — offered only on the genuine first
   // break, when the top is still staged at the line (step 0, not yet on the
@@ -1007,6 +1022,21 @@ export default function GameClient({ code }: { code: string }) {
               className="skellz-msg max-w-[94vw] truncate rounded-xl border border-cyan-400/50 bg-black/80 px-4 py-1.5 text-center text-sm font-bold text-cyan-50 shadow-[0_0_16px_rgba(56,245,255,0.25)] backdrop-blur"
             >
               {m.text}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Chat pop-ups at the BOTTOM — each fades in, lingers, then fades out, so
+          you can read what someone said without opening the chat panel. */}
+      {chatToasts.length > 0 && (
+        <div className="chat-toasts pointer-events-none absolute inset-x-0 z-30 flex flex-col items-start gap-1 px-3">
+          {chatToasts.map((m) => (
+            <div
+              key={m.id}
+              className="skellz-msg max-w-[88vw] truncate rounded-2xl border border-fuchsia-400/40 bg-black/75 px-3.5 py-1.5 text-sm font-semibold text-fuchsia-50 shadow-lg backdrop-blur"
+            >
+              💬 {m.text}
             </div>
           ))}
         </div>
