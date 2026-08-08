@@ -243,6 +243,32 @@ export function clampBehindStart(x: number, z: number): { x: number; z: number }
   };
 }
 
+// ---- free placement around your team's box --------------------------------
+// In a team game the whole squad gathers on the same box after an advance, so
+// before shooting each player may nudge their top anywhere in and around that
+// one box (on its line, or just off it) — enough room that team-mates never
+// stack on the same spot and collide when they shoot.
+export const BOX_PLACE_R = 3.6; // box half-width (2.4) plus a margin past the line
+
+/**
+ * Clamp a point into a disc of radius `radius` centred on a box. Used by the
+ * client to constrain the reposition drag and by the server to sanitise
+ * whatever a client sends, so a top can only be placed on/around its own box.
+ */
+export function clampAroundBox(
+  x: number,
+  z: number,
+  cx: number,
+  cz: number,
+  radius: number = BOX_PLACE_R,
+): { x: number; z: number } {
+  const dx = x - cx;
+  const dz = z - cz;
+  const d = Math.hypot(dx, dz);
+  if (d <= radius || d === 0) return { x, z };
+  return { x: cx + (dx / d) * radius, z: cz + (dz / d) * radius };
+}
+
 // ---- NYC Story Levels (20 Boroughs & Landmarks) --------------------------
 export const LEVELS = [
   { id: 0, name: "Da Commons", friction: 2.2, c1: "#6ff2ff", c2: "#ff5c8a", bg: "#8e9bb5" }, // standard

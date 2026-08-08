@@ -9,7 +9,17 @@ import Leaderboard from "@/components/Leaderboard";
 import VoicePanel from "@/components/VoicePanel";
 import type { Playback } from "@/components/Scene";
 import { PLAYBACK_FPS, resolveShot, routeTarget, type Cap, type GameState } from "@/game/sim";
-import { LAST_LEVEL, LEVELS, MAX_PLAYERS, boxByNumber, clampBehindStart, legOf } from "@/game/board";
+import {
+  BOX_PLACE_R,
+  LAST_LEVEL,
+  LEVELS,
+  MAX_PLAYERS,
+  ROUTE,
+  boxByNumber,
+  clampAroundBox,
+  clampBehindStart,
+  legOf,
+} from "@/game/board";
 import { isMuted, playShootSound, setMuted, unlockAudio } from "@/game/audio";
 import { MIN_CHARGE, powerAt } from "@/game/power";
 import { useRoomToken, useStoredName } from "@/game/session";
@@ -497,18 +507,55 @@ export default function GameClient({ code }: { code: string }) {
 
   // Free placement behind the START line — offered only on the genuine first
   // break, when the top is still staged at the line (step 0, not yet on the
-  // board). After that you play it where it lies, so no placement.
+  // board).
   const atStartBreak = isMyTurn && !!myCap && myCap.step === 0 && !myCap.killer && !myCap.onBoard;
-  // The placed spot only counts during that break; everywhere else the top's
-  // real position is the origin. (This is why no reset effect is needed.)
-  const origin = atStartBreak && placedFrom ? placedFrom : myCap ? { x: myCap.x, z: myCap.z } : null;
+  // Free placement around your team's box. In a team game the squad piles onto
+  // the same box after an advance, so before shooting you may nudge your top
+  // anywhere in/around that one box and not collide with a team-mate.
+  const atBoxPlacement =
+    isMyTurn &&
+    !!myCap &&
+    !!data?.room.teamMode &&
+    myCap.onBoard &&
+    !myCap.killer &&
+    !myCap.stuck &&
+    myCap.step > 0;
+  const canPlace = atStartBreak || atBoxPlacement;
+  // The centre of the box you're clustered on — the disc your reposition drag
+  // is clamped to. Falls back to the top's real spot if the box is unknown.
+  const boxAnchor = useMemo(() => {
+    if (!atBoxPlacement || !myCap) return null;
+    const box = boxByNumber(ROUTE[myCap.step - 1]);
+    return box ? { x: box.x, z: box.z } : { x: myCap.x, z: myCap.z };
+  }, [atBoxPlacement, myCap]);
+  // Clamp a candidate spot to whichever placement zone is active.
+  const clampPlace = useCallback(
+    (x: number, z: number) => {
+      if (atStartBreak) return clampBehindStart(x, z);
+      if (boxAnchor) return clampAroundBox(x, z, boxAnchor.x, boxAnchor.z, BOX_PLACE_R);
+      return { x, z };
+    },
+    [atStartBreak, boxAnchor],
+  );
+  // A placed spot only counts while placement is offered AND it still sits in
+  // the current zone. Clamping it and checking it didn't move tells us whether
+  // it belongs here — so a spot left over from a previous turn/box (which the
+  // clamp would drag elsewhere) is quietly ignored instead of teleporting your
+  // top. No reset effect needed (which would also trip the set-state lint).
+  const placedValid = useMemo(() => {
+    if (!canPlace || !placedFrom) return null;
+    const c = clampPlace(placedFrom.x, placedFrom.z);
+    return Math.hypot(c.x - placedFrom.x, c.z - placedFrom.z) < 0.01 ? placedFrom : null;
+  }, [canPlace, placedFrom, clampPlace]);
+  // Everywhere else the top's real position is the origin.
+  const origin = placedValid ?? (myCap ? { x: myCap.x, z: myCap.z } : null);
 
   // What the 3D scene draws: your own top follows the placement while you're
   // setting it, everyone else is untouched.
   const displayCaps = useMemo(() => {
-    if (!atStartBreak || !placedFrom || !myId) return caps;
-    return caps.map((c) => (c.id === myId ? { ...c, x: placedFrom.x, z: placedFrom.z } : c));
-  }, [caps, atStartBreak, placedFrom, myId]);
+    if (!placedValid || !myId) return caps;
+    return caps.map((c) => (c.id === myId ? { ...c, x: placedValid.x, z: placedValid.z } : c));
+  }, [caps, placedValid, myId]);
 
   /**
    * Drive the CPU turns.
@@ -621,6 +668,9 @@ export default function GameClient({ code }: { code: string }) {
       power,
     });
     appliedSeq.current = res.seq;
+    // The shot's taken — drop any placement so it can't bleed into next turn.
+    setPlacedFrom(null);
+    setPlacing(false);
     setView(prev);
     pendingRef.current = sim.state;
     setPlayback({
@@ -651,9 +701,9 @@ export default function GameClient({ code }: { code: string }) {
 
     if (pointersRef.current.size === 1) {
       if (!isMyTurn || !myCap || !origin) return;
-      // Placement mode: a drag slides your top around behind the line instead
-      // of aiming, and no shot is charged.
-      if (placing && atStartBreak) {
+      // Placement mode: a drag slides your top around its zone instead of
+      // aiming, and no shot is charged.
+      if (placing && canPlace) {
         placeDragRef.current = { x: e.clientX, y: e.clientY, base: origin };
         return;
       }
@@ -687,8 +737,8 @@ export default function GameClient({ code }: { code: string }) {
     }
 
     if (pointersRef.current.size === 1) {
-      // Placement drag: slide the top around behind the line, clamped to the
-      // legal zone. The screen delta is mapped into the ground plane using the
+      // Placement drag: slide the top around its zone, clamped to the legal
+      // area. The screen delta is mapped into the ground plane using the
       // current camera spin so a drag moves the top the way you'd expect.
       if (placeDragRef.current) {
         const dx = e.clientX - placeDragRef.current.x;
@@ -697,7 +747,7 @@ export default function GameClient({ code }: { code: string }) {
         const wx = (-Math.cos(spin) * dx + Math.sin(spin) * dy) * SCALE;
         const wz = (Math.sin(spin) * dx + Math.cos(spin) * dy) * SCALE;
         const base = placeDragRef.current.base;
-        setPlacedFrom(clampBehindStart(base.x + wx, base.z + wz));
+        setPlacedFrom(clampPlace(base.x + wx, base.z + wz));
         return;
       }
       if (!dragRef.current || !myCap || !isMyTurn) return;
@@ -727,8 +777,9 @@ export default function GameClient({ code }: { code: string }) {
     dragRef.current = null;
     setAim(null);
     if (!a || !isMyTurn) return;
-    // On the break, fire from wherever you placed your top behind the line.
-    await shoot(a.angle, power, atStartBreak ? placedFrom : null);
+    // Fire from wherever you placed your top (behind the line, or around your
+    // team's box), else from where it lies.
+    await shoot(a.angle, power, placedValid);
   };
 
   const onPointerCancel = (e: React.PointerEvent) => {
@@ -1088,9 +1139,9 @@ export default function GameClient({ code }: { code: string }) {
         </button>
       )}
 
-      {/* Free placement: only offered on the break, when you can stand your top
-          anywhere behind the START line. */}
-      {atStartBreak && !playback && (
+      {/* Free placement: on the break (anywhere behind the START line) or, in a
+          team game, in and around the box your squad is sharing. */}
+      {canPlace && !playback && (
         <button
           onClick={() => setPlacing((v) => !v)}
           className={`bottom-safe pointer-events-auto absolute left-24 z-20 flex h-16 w-16 flex-col items-center justify-center rounded-full border-2 text-center shadow-lg active:opacity-80 ${
@@ -1102,10 +1153,12 @@ export default function GameClient({ code }: { code: string }) {
         </button>
       )}
 
-      {placing && atStartBreak && !playback && (
+      {placing && canPlace && !playback && (
         <div className="pointer-events-none absolute inset-x-0 bottom-44 flex justify-center px-4">
           <div className="max-w-[92vw] rounded-full border border-cyan-400/40 bg-black/75 px-4 py-1.5 text-center text-xs font-bold text-cyan-100 backdrop-blur">
-            Drag to stand your top anywhere behind the line · tap ✓ when set
+            {atStartBreak
+              ? "Drag to stand your top anywhere behind the line · tap ✓ when set"
+              : "Drag to spot your top in/around the box · tap ✓ when set"}
           </div>
         </div>
       )}

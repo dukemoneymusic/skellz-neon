@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { nanoid } from "nanoid";
-import { LAST_LEVEL, MAX_PLAYERS, clampBehindStart } from "@/game/board";
+import { LAST_LEVEL, MAX_PLAYERS, ROUTE, boxByNumber, clampAroundBox, clampBehindStart } from "@/game/board";
 import { computeAutoShot, computeBotShot } from "@/game/bot";
 import { COLORS, COLORS2 } from "@/game/colors";
 import { makeCap, resolveShot, type Cap, type ShotInput } from "@/game/sim";
@@ -451,21 +451,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
       const rawPower = typeof body.power === "number" && Number.isFinite(body.power) ? body.power : 0.5;
       const power = Math.max(0.01, Math.min(1, rawPower));
 
-      // Free placement: on the break you may stand your top anywhere behind the
-      // START line. Trust nothing the client sends — clamp it into the legal
-      // zone, and only honour it while the cap is still at START (step 0).
+      // Free placement. Two cases, and we trust nothing the client sends —
+      // whatever position arrives is clamped into the only legal zone for it:
+      //   • on the break (step 0): anywhere behind the START line.
+      //   • in a team game, on a box: anywhere in/around that one box, so
+      //     team-mates sharing the box can spread out and not collide.
       const from = body.from;
-      if (
-        cap.step === 0 &&
-        from &&
-        typeof from.x === "number" &&
-        typeof from.z === "number" &&
-        Number.isFinite(from.x) &&
-        Number.isFinite(from.z)
-      ) {
-        const placed = clampBehindStart(from.x, from.z);
-        const caps = room.state.caps.map((c) => (c.id === currentId ? { ...c, x: placed.x, z: placed.z } : c));
-        updateRoom(room, { state: { ...room.state, caps } });
+      const fx = from?.x;
+      const fz = from?.z;
+      if (typeof fx === "number" && typeof fz === "number" && Number.isFinite(fx) && Number.isFinite(fz)) {
+        let placed: { x: number; z: number } | null = null;
+        if (cap.step === 0) {
+          placed = clampBehindStart(fx, fz);
+        } else if (room.teamMode && cap.onBoard && !cap.killer && !cap.stuck && cap.step > 0) {
+          const box = boxByNumber(ROUTE[cap.step - 1]);
+          const anchor = box ?? { x: cap.x, z: cap.z };
+          placed = clampAroundBox(fx, fz, anchor.x, anchor.z);
+        }
+        if (placed) {
+          const caps = room.state.caps.map((c) => (c.id === currentId ? { ...c, x: placed.x, z: placed.z } : c));
+          updateRoom(room, { state: { ...room.state, caps } });
+        }
       }
 
       const { result, seq } = applyShot(room, roster, currentId, { angle, power });

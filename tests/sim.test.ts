@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   BOXES,
+  BOX_PLACE_R,
   CAP_R,
   FINAL_STEP,
   LEVELS,
@@ -11,6 +12,7 @@ import {
   START_BAND_HALF,
   START_LINE,
   boxByNumber,
+  clampAroundBox,
   clampBehindStart,
   insideBox,
   panelValueAt,
@@ -672,6 +674,25 @@ test("placement is clamped to the zone behind the START line", () => {
   assert.ok(Math.abs(far.z - START_LINE.z) <= START_BAND_HALF + 0.001, "width along the line is capped");
   // And it's still a real spot, not off in space.
   assert.ok(Number.isFinite(far.x) && Number.isFinite(far.z));
+});
+
+test("team box placement is clamped to a disc around the box, and lets tops sit apart", () => {
+  const box = boxByNumber(5)!;
+  // A spot already inside the box is left untouched.
+  const near = clampAroundBox(box.x + 1, box.z - 0.5, box.x, box.z);
+  assert.equal(near.x, box.x + 1, "an in-zone spot is not moved");
+  assert.equal(near.z, box.z - 0.5, "an in-zone spot is not moved");
+
+  // A spot flung far away is pulled back onto the disc's rim — never further
+  // than BOX_PLACE_R from the box centre, so you can only place on/around it.
+  const far = clampAroundBox(box.x + 100, box.z + 100, box.x, box.z);
+  const d = Math.hypot(far.x - box.x, far.z - box.z);
+  assert.ok(d <= BOX_PLACE_R + 1e-9, "cannot place beyond the box zone");
+  assert.ok(d > BOX_PLACE_R - 1e-6, "a far throw lands on the rim");
+
+  // The disc is wide enough for two team-mates to stand clear of each other:
+  // opposite rims are 2·BOX_PLACE_R apart, comfortably past a cap diameter.
+  assert.ok(2 * BOX_PLACE_R > CAP_R * 2 + 1, "room for tops not to collide");
 });
 
 test("everyone pinned in the middle at once is a TIE", () => {
