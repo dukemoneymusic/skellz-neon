@@ -82,18 +82,39 @@ function applyShot(room: Room, roster: Player[], shooterId: string, input: ShotI
   const order = turnOrder(before.caps, room.teamMode);
   const result = resolveShot(before, room.teamMode, room.mode === "story", room.level, shooterId, input);
 
-  // pass the turn, skipping anyone pinned in the middle
-  let nextIndex = room.turnIndex;
-  if (!result.extraTurn) {
-    const pick = (allowStuck: boolean) => {
+  // Pass the turn. Walk the grouped order from the current seat and take the
+  // first cap that matches — preferring un-stuck caps, then allowing stuck ones
+  // only if nobody else can go, so a pinned top never wedges the match.
+  const pick = (match: (c: Cap) => boolean): number | null => {
+    for (const allowStuck of [false, true]) {
       for (let i = 1; i <= order.length; i++) {
         const idx = (room.turnIndex + i) % order.length;
         const cap = result.state.caps.find((c) => c.id === order[idx]);
-        if (cap?.alive && (allowStuck || !cap.stuck)) return idx;
+        if (cap?.alive && (allowStuck || !cap.stuck) && match(cap)) return idx;
       }
-      return null;
-    };
-    nextIndex = pick(false) ?? pick(true) ?? room.turnIndex;
+    }
+    return null;
+  };
+
+  let nextIndex = room.turnIndex;
+  if (room.teamMode) {
+    // Free-for-all rule, applied to the team: you only shoot again by making a
+    // box or hitting the OPPOSITE team (that's what sets extraTurn). On a hit
+    // like that the team keeps the ball — it goes to the next team-mate, so the
+    // side plays back-to-back. A miss ends the team's go and hands over to the
+    // other team. Nothing is a free extra shot.
+    const myTeam = result.state.caps.find((c) => c.id === shooterId)?.team;
+    const nextTeammate = pick((c) => c.team === myTeam);
+    const nextOpponent = pick((c) => c.team !== myTeam);
+    // `pick` already falls back to anyone-alive via its stuck pass, but the
+    // team predicate can still come up empty (e.g. the other side is wiped);
+    // in that case fall through to whoever can still shoot.
+    const anyone = pick(() => true);
+    nextIndex = (result.extraTurn ? nextTeammate : nextOpponent) ?? anyone ?? room.turnIndex;
+  } else if (!result.extraTurn) {
+    // Free-for-all: a make/hit lets you shoot again (index unchanged); a miss
+    // passes to the next player.
+    nextIndex = pick(() => true) ?? room.turnIndex;
   }
 
   const seq = room.seq + 1;
