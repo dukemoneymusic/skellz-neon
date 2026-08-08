@@ -19,7 +19,7 @@ import {
 } from "../src/game/board";
 import { computeAutoShot, computeBotShot } from "../src/game/bot";
 import { MIN_CHARGE, POWER_CYCLE_MS, powerAt } from "../src/game/power";
-import { makeCap, resolveShot, startPositionFor, type Cap, type GameState } from "../src/game/sim";
+import { makeCap, resolveShot, startPositionFor, turnOrder, type Cap, type GameState } from "../src/game/sim";
 
 /** Deterministic RNG so a failing test can always be reproduced. */
 function seeded(seed: number) {
@@ -674,6 +674,21 @@ test("placement is clamped to the zone behind the START line", () => {
   assert.ok(Math.abs(far.z - START_LINE.z) <= START_BAND_HALF + 0.001, "width along the line is capped");
   // And it's still a real spot, not off in space.
   assert.ok(Number.isFinite(far.x) && Number.isFinite(far.z));
+});
+
+test("in a team game team-mates take their turns back-to-back", () => {
+  // Seats interleave the sides (team = slot % 2): A0, B0, A1, B1.
+  const caps = [
+    makeCap("a0", "A0", "#111", 0, 0),
+    makeCap("b0", "B0", "#222", 1, 1),
+    makeCap("a1", "A1", "#333", 0, 2),
+    makeCap("b1", "B1", "#444", 1, 3),
+  ];
+  // Free-for-all just follows the seats.
+  assert.deepEqual(turnOrder(caps, false), ["a0", "b0", "a1", "b1"], "ffa keeps seat order");
+  // Teams play as blocks: both of team 0, then both of team 1, seat order kept
+  // within each — so after A0 shoots, teammate A1 is next (not an opponent).
+  assert.deepEqual(turnOrder(caps, true), ["a0", "a1", "b0", "b1"], "team-mates are consecutive");
 });
 
 test("team box placement is clamped to a disc around the box, and lets tops sit apart", () => {

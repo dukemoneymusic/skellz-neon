@@ -98,6 +98,27 @@ export function routeTarget(cap: Cap): number | null {
   return ROUTE[cap.step];
 }
 
+/**
+ * The order turns cycle through, as cap ids.
+ *
+ * Free-for-all keeps raw seat order. In a team game each side plays as a block:
+ * team-mates take their shots back-to-back (and, since the team is clustered on
+ * one box, each shoots from that same box) before the turn passes to the other
+ * team. We group by team while preserving seat order within a team.
+ *
+ * Deterministic — the same caps always yield the same order — so `turnIndex`
+ * (always read modulo this length) stays meaningful across turns, reconnects,
+ * and every caller: the server picks the current/next shooter with it and the
+ * client works out whose turn it is with it, so they can never disagree.
+ */
+export function turnOrder(caps: Cap[], teamMode: boolean): string[] {
+  if (!teamMode) return caps.map((c) => c.id);
+  return caps
+    .map((c, seat) => ({ id: c.id, team: c.team, seat }))
+    .sort((a, b) => a.team - b.team || a.seat - b.seat)
+    .map((x) => x.id);
+}
+
 /** Has this cap made box 1 yet? Only then may it legally strike other tops. */
 export function isArmed(cap: Cap): boolean {
   return cap.killer || cap.step >= ARMED_STEP;

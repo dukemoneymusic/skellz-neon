@@ -1,4 +1,4 @@
-import type { GameState } from "@/game/sim";
+import { turnOrder, type GameState } from "@/game/sim";
 import { size as leaderboardSize } from "@/server/leaderboard";
 
 /**
@@ -192,8 +192,9 @@ export function removePlayer(room: Room, roster: Player[], targetId: number, kic
   // Delete the player row.
   for (const [id, p] of store.players) if (p.id === targetId) store.players.delete(id);
 
-  // If it was their turn, hand it to the next living, un-stuck cap.
-  const order = room.state.caps.map((c) => c.id);
+  // If it was their turn, hand it to the next living, un-stuck cap — following
+  // the same team-grouped order the turn normally cycles through.
+  const order = turnOrder(room.state.caps, room.teamMode);
   if (order.length > 0 && order[room.turnIndex % order.length] === String(targetId)) {
     for (let i = 1; i <= order.length; i++) {
       const idx = (room.turnIndex + i) % order.length;

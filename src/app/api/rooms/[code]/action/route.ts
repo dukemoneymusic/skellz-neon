@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { LAST_LEVEL, MAX_PLAYERS, ROUTE, boxByNumber, clampAroundBox, clampBehindStart } from "@/game/board";
 import { computeAutoShot, computeBotShot } from "@/game/bot";
 import { COLORS, COLORS2 } from "@/game/colors";
-import { makeCap, resolveShot, type Cap, type ShotInput } from "@/game/sim";
+import { makeCap, resolveShot, turnOrder, type Cap, type ShotInput } from "@/game/sim";
 import { recordGame } from "@/server/leaderboard";
 import { isPendingToken, pendingTokenFor, shouldAdoptSnapshot, validateSnapshot } from "@/server/restore";
 import {
@@ -62,7 +62,7 @@ const HEX = /^#[0-9a-fA-F]{6}$/;
 
 /** Whose turn it is, as a cap id. */
 function currentCapId(room: Room): string | null {
-  const order = room.state.caps.map((c) => c.id);
+  const order = turnOrder(room.state.caps, room.teamMode);
   if (order.length === 0) return null;
   return order[room.turnIndex % order.length];
 }
@@ -78,7 +78,8 @@ function currentCapId(room: Room): string | null {
  */
 function applyShot(room: Room, roster: Player[], shooterId: string, input: ShotInput) {
   const before = room.state;
-  const order = before.caps.map((c) => c.id);
+  // Team-mates play as a block, so the turn cycles through this grouped order.
+  const order = turnOrder(before.caps, room.teamMode);
   const result = resolveShot(before, room.teamMode, room.mode === "story", room.level, shooterId, input);
 
   // pass the turn, skipping anyone pinned in the middle
@@ -415,7 +416,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
         if (cap.stuck) {
           // Defensive: a pinned CPU can't shoot, so hand the turn on rather
           // than wedging the match.
-          const order = room.state.caps.map((c) => c.id);
+          const order = turnOrder(room.state.caps, room.teamMode);
           for (let i = 1; i <= order.length; i++) {
             const idx = (room.turnIndex + i) % order.length;
             const next = room.state.caps.find((c) => c.id === order[idx]);

@@ -8,7 +8,7 @@ import ChatPanel from "@/components/ChatPanel";
 import Leaderboard from "@/components/Leaderboard";
 import VoicePanel from "@/components/VoicePanel";
 import type { Playback } from "@/components/Scene";
-import { PLAYBACK_FPS, resolveShot, routeTarget, type Cap, type GameState } from "@/game/sim";
+import { PLAYBACK_FPS, resolveShot, routeTarget, turnOrder, type Cap, type GameState } from "@/game/sim";
 import {
   BOX_PLACE_R,
   LAST_LEVEL,
@@ -417,7 +417,10 @@ export default function GameClient({ code }: { code: string }) {
   };
 
   const caps = view.caps;
-  const order = useMemo(() => caps.map((c) => c.id), [caps]);
+  // Same team-grouped order the server uses to pick the shooter, so the client
+  // never disagrees about whose turn it is (team-mates play back-to-back).
+  const teamMode = !!data?.room.teamMode;
+  const order = useMemo(() => turnOrder(caps, teamMode), [caps, teamMode]);
   const turnId = data && data.room.status === "playing" ? order[data.room.turnIndex % Math.max(1, order.length)] : null;
   const myId = data?.me?.id ?? null;
   const myCap = caps.find((c) => c.id === myId);
@@ -513,13 +516,7 @@ export default function GameClient({ code }: { code: string }) {
   // the same box after an advance, so before shooting you may nudge your top
   // anywhere in/around that one box and not collide with a team-mate.
   const atBoxPlacement =
-    isMyTurn &&
-    !!myCap &&
-    !!data?.room.teamMode &&
-    myCap.onBoard &&
-    !myCap.killer &&
-    !myCap.stuck &&
-    myCap.step > 0;
+    isMyTurn && !!myCap && teamMode && myCap.onBoard && !myCap.killer && !myCap.stuck && myCap.step > 0;
   const canPlace = atStartBreak || atBoxPlacement;
   // The centre of the box you're clustered on — the disc your reposition drag
   // is clamped to. Falls back to the top's real spot if the box is unknown.
