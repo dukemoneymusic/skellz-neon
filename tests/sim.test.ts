@@ -19,7 +19,15 @@ import {
 } from "../src/game/board";
 import { computeAutoShot, computeBotShot } from "../src/game/bot";
 import { MIN_CHARGE, POWER_CYCLE_MS, powerAt } from "../src/game/power";
-import { makeCap, resolveShot, startPositionFor, turnOrder, type Cap, type GameState } from "../src/game/sim";
+import {
+  clusterTeamInBox,
+  makeCap,
+  resolveShot,
+  startPositionFor,
+  turnOrder,
+  type Cap,
+  type GameState,
+} from "../src/game/sim";
 
 /** Deterministic RNG so a failing test can always be reproduced. */
 function seeded(seed: number) {
@@ -653,6 +661,46 @@ test("a whole synced team spreads out — no two tops overlap", () => {
     for (let j = i + 1; j < caps.length; j++) {
       const d = Math.hypot(caps[i].x - caps[j].x, caps[i].z - caps[j].z);
       assert.ok(d > CAP_R * 2, `caps ${i} and ${j} overlap (gap ${d.toFixed(2)})`);
+    }
+  }
+});
+
+test("a carried team gathers INSIDE the one box, not in a ring outside it", () => {
+  const state = newState(4);
+  for (const c of state.caps) c.team = 0;
+  const leader = state.caps[0];
+  const box5 = boxByNumber(5)!;
+  leader.step = 5;
+  leader.onBoard = true;
+  leader.x = box5.x - 3;
+  leader.z = box5.z;
+  for (let i = 1; i < 4; i++) {
+    state.caps[i].step = 2;
+    state.caps[i].onBoard = true;
+    state.caps[i].x = startPositionFor(i).x;
+    state.caps[i].z = startPositionFor(i).z;
+  }
+
+  const res = resolveShot(state, true, false, 0, leader.id, { angle: 0, power: 0.032 });
+  // The team shares one step; the box they now sit on is ROUTE[step-1].
+  const step = Math.max(...res.state.caps.map((c) => c.step));
+  const boxN = ROUTE[step - 1];
+  // Every team-mate — leader included — is fully inside that one box by street
+  // rules, so they all shoot from it. (The old ring put them ~3.8 units out.)
+  for (const c of res.state.caps) {
+    assert.ok(insideBox(boxN, c.x, c.z), `${c.id} should be inside box ${boxN} (at ${c.x.toFixed(2)}, ${c.z.toFixed(2)})`);
+  }
+});
+
+test("clusterTeamInBox fits four tops inside a box without overlapping", () => {
+  const box = boxByNumber(7)!;
+  const caps = [0, 1, 2, 3].map((i) => makeCap("c" + i, "C" + i, "#111", 0, i));
+  clusterTeamInBox(caps, box);
+  for (const c of caps) assert.ok(insideBox(7, c.x, c.z), `${c.id} inside the box`);
+  for (let i = 0; i < caps.length; i++) {
+    for (let j = i + 1; j < caps.length; j++) {
+      const d = Math.hypot(caps[i].x - caps[j].x, caps[i].z - caps[j].z);
+      assert.ok(d > CAP_R * 2, `tops ${i} and ${j} overlap (gap ${d.toFixed(2)})`);
     }
   }
 });

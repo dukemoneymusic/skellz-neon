@@ -1,6 +1,7 @@
 import {
   ARMED_STEP,
   BACK_STEP,
+  BOX,
   CAP_R,
   FINAL_STEP,
   OUT_LIMIT,
@@ -117,6 +118,35 @@ export function turnOrder(caps: Cap[], teamMode: boolean): string[] {
     .map((c, seat) => ({ id: c.id, team: c.team, seat }))
     .sort((a, b) => a.team - b.team || a.seat - b.seat)
     .map((x) => x.id);
+}
+
+/** Inset of each grid cell from the box centre when a team gathers on a box.
+ *  Derived from the box so it tracks its size: BOX/2 − CAP_R − 0.35 ≈ 1.45,
+ *  which clears the strict insideBox limit (< BOX/2 − 0.06 − CAP_R ≈ 1.74) so
+ *  every top is fully inside the chalk square, while the 2·inset ≈ 2.9 spacing
+ *  keeps them far past a cap's 1.2 width — inside the box, not colliding. */
+const TEAM_BOX_INSET = BOX / 2 - CAP_R - 0.35;
+
+/**
+ * Gather a team's tops INSIDE a single box so every member shoots from that one
+ * box, one after another, without stacking. A 2×2 grid inset from the box
+ * centre fits up to four (the max per side) fully inside the chalk square while
+ * keeping them well clear of each other. Mutates the caps in place.
+ */
+export function clusterTeamInBox(teamCaps: Cap[], center: { x: number; z: number }): void {
+  const d = TEAM_BOX_INSET;
+  const cells: ReadonlyArray<readonly [number, number]> = [
+    [-d, -d],
+    [d, -d],
+    [-d, d],
+    [d, d],
+  ];
+  teamCaps.forEach((c, i) => {
+    const [dx, dz] = cells[i % cells.length];
+    c.x = center.x + dx;
+    c.z = center.z + dz;
+    c.onBoard = true;
+  });
 }
 
 /** Has this cap made box 1 yet? Only then may it legally strike other tops. */
@@ -782,25 +812,17 @@ export function resolveShot(
         }
       });
 
-      // When the team just moved up, gather everyone around the leader —
-      // but SPREAD OUT in a ring so no two tops sit on the same spot. Stacked
-      // teammates used to collide the instant one of them tried to shoot.
+      // When the team just moved up, gather everyone INSIDE the box they now
+      // share — a tight 2×2 grid, not a wide ring — so each team-mate shoots
+      // from that one box in turn (they can still nudge with the Move tool),
+      // and no two tops stack on the same spot.
       if (synced && !isKiller) {
         const board = teamCaps.filter((c) => !c.killer && c.alive);
         if (board.length > 1) {
-          // The leader keeps exactly where it came to rest; the rest ring around
-          // it with plenty of clear air so a teammate's flick doesn't instantly
-          // clip a neighbour. `gap` is the centre-to-centre spacing along the
-          // ring — well beyond a cap's 2·CAP_R width so there's room to shoot.
-          const followers = board.filter((c) => c.id !== leader.id);
-          const gap = CAP_R * 2 + 2.6; // ~2.4 units of clear space between tops
-          const radius = Math.max(gap, (followers.length * gap) / (2 * Math.PI));
-          followers.forEach((c, i) => {
-            const ang = (i / followers.length) * Math.PI * 2 + 0.3;
-            c.x = leader.x + Math.cos(ang) * radius;
-            c.z = leader.z + Math.sin(ang) * radius;
-            c.onBoard = true;
-          });
+          // Anchor on the box the team is on (its route step). Fall back to the
+          // leader's resting spot only if that box can't be resolved.
+          const box = boxByNumber(ROUTE[maxStep - 1]);
+          clusterTeamInBox(board, box ?? { x: leader.x, z: leader.z });
         }
       }
     }
