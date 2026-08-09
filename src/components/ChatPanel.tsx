@@ -43,37 +43,42 @@ export default function ChatPanel({
 
   return (
     <div
-      // See-through backdrop so the game stays visible behind the chat.
-      className="pad-safe absolute inset-0 z-50 grid place-items-end bg-black/20 sm:place-items-center"
+      // Fully see-through backdrop so the whole game stays visible behind chat.
+      className="pad-safe absolute inset-0 z-50 grid place-items-end bg-transparent sm:place-items-center"
       onClick={() => {
         if (Date.now() - openedAt.current > 450) onClose();
       }}
     >
       <div
-        // Translucent, blurred panel — you can still watch the game through it.
-        className="flex h-[62vh] w-full max-w-md flex-col rounded-3xl border border-cyan-400/30 bg-[#0a0f1c]/55 p-4 shadow-2xl backdrop-blur-md"
+        // Small, completely transparent panel — no fill, no blur — so you can
+        // still watch the game right through it. Text carries its own shadow so
+        // it stays readable over anything on the board.
+        className="flex h-[38vh] w-full max-w-sm flex-col rounded-2xl border border-cyan-400/20 bg-transparent p-3 [text-shadow:0_1px_4px_rgba(0,0,0,0.95)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-black text-cyan-300">💬 Chat</h3>
-          <button onClick={onClose} className="rounded-lg border border-white/15 bg-white/5 px-3 py-1 text-xs text-white/70">
+          <h3 className="text-base font-black text-cyan-300">💬 Chat</h3>
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-white/20 bg-black/30 px-3 py-1 text-xs text-white/80"
+          >
             Close
           </button>
         </div>
 
-        <div ref={listRef} className="mt-3 flex-1 space-y-1.5 overflow-y-auto pr-1">
-          {messages.length === 0 && <p className="text-sm text-white/40">No messages yet — say hi 👋</p>}
+        <div ref={listRef} className="mt-2 flex-1 space-y-1 overflow-y-auto pr-1">
+          {messages.length === 0 && <p className="text-sm text-white/70">No messages yet — say hi 👋</p>}
           {messages.map((m) => (
             <div key={m.id} className="text-sm leading-snug">
-              <span className="font-bold" style={{ color: m.color }}>
+              <span className="font-black" style={{ color: m.color }}>
                 {m.name}:
               </span>{" "}
-              <span className="text-white/85">{m.text}</span>
+              <span className="font-semibold text-white">{m.text}</span>
             </div>
           ))}
         </div>
 
-        <div className="mt-3 flex gap-2">
+        <div className="mt-2 flex gap-2 [text-shadow:none]">
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -82,7 +87,7 @@ export default function ChatPanel({
             }}
             maxLength={160}
             placeholder="Message…"
-            className="min-w-0 flex-1 rounded-xl border border-white/15 bg-black/40 px-3 py-2.5 text-sm outline-none focus:border-cyan-400"
+            className="min-w-0 flex-1 rounded-xl border border-white/20 bg-black/50 px-3 py-2 text-sm outline-none focus:border-cyan-400"
           />
           <button
             onClick={send}
