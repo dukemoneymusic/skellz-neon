@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ChatPanel from "@/components/ChatPanel";
 import Leaderboard from "@/components/Leaderboard";
-import VoicePanel from "@/components/VoicePanel";
 import type { Playback } from "@/components/Scene";
 import { PLAYBACK_FPS, resolveShot, routeTarget, turnOrder, type Cap, type GameState } from "@/game/sim";
 import {
@@ -144,7 +143,6 @@ export default function GameClient({ code }: { code: string }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showStandings, setShowStandings] = useState(false);
   const [showBoard, setShowBoard] = useState(false);
-  const [showVoice, setShowVoice] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [lastSeenChat, setLastSeenChat] = useState(0);
   const [kicked, setKicked] = useState(false);
@@ -439,17 +437,19 @@ export default function GameClient({ code }: { code: string }) {
     () => (data?.players ?? []).filter((p) => !p.isBot).map((p) => Number(p.id)),
     [data?.players],
   );
-  const voice = useVoiceChat(code, token, voiceMyId, voicePeerIds);
+  // Voice is "always open": the mesh listens automatically while the game is
+  // playing, so the top-right mic button just turns your own audio on/off.
+  const voice = useVoiceChat(code, token, voiceMyId, voicePeerIds, roomStatus === "playing");
 
   const router = useRouter();
 
   // Quit back to the main menu. Tell the server so our top is taken off the
   // board and the rest can carry on, then leave voice and navigate home.
   const quit = useCallback(() => {
-    if (voice.active) voice.leave();
+    // Leaving unmounts the game, which tears the voice mesh down on its own.
     if (token) act({ action: "leave" }, { silent: true });
     router.push("/");
-  }, [voice, token, act, router]);
+  }, [token, act, router]);
 
   // Host removes a player mid-game; the match continues without them.
   const kick = useCallback(
@@ -911,19 +911,18 @@ export default function GameClient({ code }: { code: string }) {
         </div>
 
         <div className="pointer-events-auto flex items-center gap-2">
-          {/* Quick voice on/off — no menu needed. Tap to join the mesh (asks for
-              mic the first time); tap again to leave. */}
+          {/* Open-mic button. Voice is always listening while the game plays;
+              this just turns YOUR mic on/off. First tap grants mic access. */}
           <button
             onClick={() => {
               unlockAudio();
-              if (voice.active || voice.connecting) voice.leave();
-              else voice.join();
+              voice.toggleMic();
             }}
             onPointerDown={(e) => e.stopPropagation()}
-            title={voice.active ? "Voice on — tap to turn off" : "Voice off — tap to turn on"}
-            aria-pressed={voice.active}
+            title={voice.micOn ? "Mic on — everyone can hear you (tap to mute)" : "Mic off — tap to talk to the room"}
+            aria-pressed={voice.micOn}
             className={`relative flex h-12 w-12 items-center justify-center rounded-full border text-xl backdrop-blur ${
-              voice.active
+              voice.micOn
                 ? "border-emerald-300 bg-emerald-400/25 text-emerald-100"
                 : voice.error
                   ? "border-rose-400/70 bg-black/55 text-rose-200"
@@ -931,14 +930,14 @@ export default function GameClient({ code }: { code: string }) {
             }`}
           >
             🎙️
-            {voice.active && (
+            {voice.micOn && (
               <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-black" />
             )}
             {voice.connecting && (
               <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-300 ring-2 ring-black" />
             )}
-            {!voice.active && !voice.connecting && (
-              // Diagonal slash = off.
+            {!voice.micOn && !voice.connecting && (
+              // Diagonal slash = your mic is off.
               <span className="pointer-events-none absolute h-7 w-0.5 rotate-45 rounded-full bg-rose-400/90" />
             )}
           </button>
@@ -985,26 +984,9 @@ export default function GameClient({ code }: { code: string }) {
               >
                 🎨 Top colour
               </button>
-              <button
-                onClick={() => {
-                  unlockAudio();
-                  setShowVoice(true);
-                  setShowMenu(false);
-                }}
-                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-left text-xs"
-              >
-                {voice.active ? "🎙️ Voice: on" : "🎙️ Voice chat"}
-              </button>
-              <button
-                onClick={() => {
-                  setLastSeenChat(data.room.chatSeq);
-                  setShowChat(true);
-                  setShowMenu(false);
-                }}
-                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-left text-xs"
-              >
-                💬 Chat
-              </button>
+              {/* Voice and Chat live on their own dedicated buttons (top-right
+                  mic, bottom-right 💬), so they're intentionally not repeated
+                  here. */}
               <button
                 onClick={() => {
                   setShowMenu(false);
@@ -1346,10 +1328,6 @@ export default function GameClient({ code }: { code: string }) {
 
       {showBoard && (
         <Leaderboard onClose={() => setShowBoard(false)} highlight={data.me ? [data.me.name] : []} />
-      )}
-
-      {showVoice && (
-        <VoicePanel voice={voice} players={data.players} myId={myId} onClose={() => setShowVoice(false)} />
       )}
 
       {showChat && (

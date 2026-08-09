@@ -3,31 +3,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Real-time voice chat over WebRTC.
+ * Real-time voice chat over WebRTC — "always open".
  *
- * Audio is peer-to-peer (a full mesh — each player connects directly to each
- * other), so voice never touches the game server; only the tiny SDP/ICE
- * handshake is relayed through the HTTP signalling mailbox. STUN handles the
- * common NAT cases. There's no TURN server, so a minority of players behind
- * strict/symmetric NATs may fail to connect — that's the one honest limit of a
- * zero-infrastructure setup.
+ * The moment the game is playing, every client quietly joins a listening mesh:
+ * it drains its signalling mailbox and answers anyone who starts talking, so you
+ * hear the room without pressing anything. Turning your mic on adds your audio
+ * to those connections (a one-tap gesture that also grants mic permission), and
+ * everyone already listening hears you immediately — no "join" step.
  *
- * Controls: mute your own mic, and mute any other player locally.
+ * Audio is peer-to-peer (a full mesh); only the tiny SDP/ICE handshake is
+ * relayed through the HTTP signalling mailbox. STUN + public TURN relays cover
+ * the common NATs. Negotiation follows the standard "perfect negotiation"
+ * pattern so either side can (re)offer — needed because a listener becomes a
+ * talker mid-call when they switch their mic on.
  */
 
-/**
- * ICE servers.
- *
- * STUN alone only connects when at least one peer has a permissive NAT. On many
- * mobile/carrier networks (symmetric NAT) the audio can't find a direct path
- * and the call silently fails — so we also list TURN relays, which bounce the
- * audio through a server when a direct path is impossible.
- *
- * The TURN entries default to Metered's free public "OpenRelay" servers (no
- * account needed) and can be overridden at build time for a private, reliable
- * relay by setting NEXT_PUBLIC_TURN_URL / _USER / _CRED. Dead servers just get
- * skipped during ICE, so listing extras never hurts.
- */
 function iceConfig(): RTCConfiguration {
   const servers: RTCIceServer[] = [
     { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
@@ -56,7 +46,7 @@ function iceConfig(): RTCConfiguration {
 
 const STUN = iceConfig();
 
-/** While voice is on we poll our mailbox faster than the game (handshake speed). */
+/** While the mesh is up we poll our mailbox faster than the game (handshake speed). */
 const SIGNAL_POLL_MS = 700;
 
 type Signal = { from: number; kind: "offer" | "answer" | "ice" | "bye"; data: unknown; t: number };
@@ -72,31 +62,38 @@ type Peer = {
 };
 
 export type VoiceState = {
-  active: boolean;
+  /** The mesh is up — you can hear anyone who is talking. */
+  listening: boolean;
+  /** Your mic is live and going out to the room. */
+  micOn: boolean;
+  /** Acquiring the mic after a tap. */
   connecting: boolean;
-  micMuted: boolean;
   error: string | null;
   /** remote player id -> "connecting" | "live" | "failed" */
   peerStatus: Record<number, string>;
   /** remote player id -> muted locally */
   mutedPeers: Record<number, boolean>;
-  join: () => void;
-  leave: () => void;
   toggleMic: () => void;
   togglePeerMute: (id: number) => void;
 };
 
-export function useVoiceChat(code: string, token: string | null, myId: number | null, peerIds: number[]): VoiceState {
-  const [active, setActive] = useState(false);
+export function useVoiceChat(
+  code: string,
+  token: string | null,
+  myId: number | null,
+  peerIds: number[],
+  enabled: boolean,
+): VoiceState {
+  const [listening, setListening] = useState(false);
+  const [micOn, setMicOn] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [micMuted, setMicMuted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [peerStatus, setPeerStatus] = useState<Record<number, string>>({});
   const [mutedPeers, setMutedPeers] = useState<Record<number, boolean>>({});
 
   const localStream = useRef<MediaStream | null>(null);
+  const micOnRef = useRef(false);
   const peers = useRef<Map<number, Peer>>(new Map());
-  const activeRef = useRef(false);
   const mutedPeersRef = useRef<Record<number, boolean>>({});
   // Keep the latest peer id list without making the signalling effect re-run.
   const peerIdsRef = useRef<number[]>(peerIds);
@@ -151,7 +148,6 @@ export function useVoiceChat(code: string, token: string | null, myId: number | 
       const pc = new RTCPeerConnection(STUN);
       const audio = document.createElement("audio");
       audio.autoplay = true;
-      // Muted state is applied per-peer from mutedPeersRef.
       audio.muted = !!mutedPeersRef.current[id];
       (audio as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
       document.body.appendChild(audio);
@@ -160,7 +156,7 @@ export function useVoiceChat(code: string, token: string | null, myId: number | 
       peers.current.set(id, peer);
       setStatus(id, "connecting");
 
-      // Send our mic up the line.
+      // If we're already talking, put our mic on this connection right away.
       if (localStream.current) {
         for (const track of localStream.current.getTracks()) pc.addTrack(track, localStream.current);
       }
@@ -177,9 +173,8 @@ export function useVoiceChat(code: string, token: string | null, myId: number | 
         if (st === "connected") setStatus(id, "live");
         else if (st === "failed") {
           setStatus(id, "failed");
-          // Don't stay dead: the offerer restarts ICE (re-runs the whole
-          // candidate search, now able to fall back to the TURN relays), which
-          // rescues most transient or NAT-change failures.
+          // Don't stay dead: the impolite side restarts ICE (re-runs the whole
+          // candidate search, now able to fall back to the TURN relays).
           if (!peer!.polite && peer!.iceRetries < 3) {
             peer!.iceRetries += 1;
             setStatus(id, "connecting");
@@ -197,12 +192,14 @@ export function useVoiceChat(code: string, token: string | null, myId: number | 
           }
         } else if (st === "disconnected") setStatus(id, "connecting");
       };
-      // The initiator (lower id) kicks off the offer.
+      // Perfect negotiation: whenever there's something to negotiate (we added a
+      // mic track), make an offer. Either side may offer; glare is resolved when
+      // the offer arrives. A pure listener has no track, so this never fires for
+      // it — it just answers whoever starts talking.
       pc.onnegotiationneeded = async () => {
-        if (peer!.polite) return; // the impolite/lower id offers
         try {
           peer!.makingOffer = true;
-          await pc.setLocalDescription(await pc.createOffer());
+          await pc.setLocalDescription();
           post(id, "offer", pc.localDescription);
         } catch {
           /* renegotiation will retry */
@@ -215,7 +212,7 @@ export function useVoiceChat(code: string, token: string | null, myId: number | 
     [myId, post, setStatus],
   );
 
-  /** Apply an incoming signal from a peer. */
+  /** Apply an incoming signal from a peer (perfect-negotiation style). */
   const handleSignal = useCallback(
     async (sig: Signal) => {
       if (myId === null || sig.from === myId) return;
@@ -228,19 +225,19 @@ export function useVoiceChat(code: string, token: string | null, myId: number | 
       const pc = peer.pc;
 
       try {
-        if (sig.kind === "offer") {
-          const offer = sig.data as RTCSessionDescriptionInit;
-          const collision = peer.makingOffer || pc.signalingState !== "stable";
-          if (collision && !peer.polite) return; // impolite side ignores a colliding offer
-          await pc.setRemoteDescription(offer);
+        if (sig.kind === "offer" || sig.kind === "answer") {
+          const desc = sig.data as RTCSessionDescriptionInit;
+          const offerCollision = desc.type === "offer" && (peer.makingOffer || pc.signalingState !== "stable");
+          // The impolite side ignores a colliding offer; the polite side accepts
+          // it (setRemoteDescription implicitly rolls its own offer back).
+          if (offerCollision && !peer.polite) return;
+          await pc.setRemoteDescription(desc);
           peer.remoteSet = true;
           for (const c of peer.pendingIce.splice(0)) await pc.addIceCandidate(c).catch(() => undefined);
-          await pc.setLocalDescription(await pc.createAnswer());
-          post(sig.from, "answer", pc.localDescription);
-        } else if (sig.kind === "answer") {
-          await pc.setRemoteDescription(sig.data as RTCSessionDescriptionInit);
-          peer.remoteSet = true;
-          for (const c of peer.pendingIce.splice(0)) await pc.addIceCandidate(c).catch(() => undefined);
+          if (desc.type === "offer") {
+            await pc.setLocalDescription();
+            post(sig.from, "answer", pc.localDescription);
+          }
         } else if (sig.kind === "ice") {
           const cand = sig.data as RTCIceCandidateInit;
           if (peer.remoteSet) await pc.addIceCandidate(cand).catch(() => undefined);
@@ -253,48 +250,6 @@ export function useVoiceChat(code: string, token: string | null, myId: number | 
     [myId, ensurePeer, closePeer, post],
   );
 
-  const leave = useCallback(() => {
-    activeRef.current = false;
-    setActive(false);
-    setConnecting(false);
-    for (const id of [...peers.current.keys()]) {
-      post(id, "bye", null);
-      closePeer(id);
-    }
-    if (localStream.current) {
-      for (const t of localStream.current.getTracks()) t.stop();
-      localStream.current = null;
-    }
-    setPeerStatus({});
-  }, [post, closePeer]);
-
-  const join = useCallback(async () => {
-    if (activeRef.current || myId === null || !token) return;
-    setError(null);
-    setConnecting(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      localStream.current = stream;
-      for (const t of stream.getAudioTracks()) t.enabled = !micMuted;
-      activeRef.current = true;
-      setActive(true);
-      // Reach out to everyone already here; the lower id in each pair offers.
-      for (const id of peerIdsRef.current) if (id !== myId) ensurePeer(id);
-    } catch {
-      setError("Mic blocked — allow microphone access to talk.");
-    } finally {
-      setConnecting(false);
-    }
-  }, [myId, token, micMuted, ensurePeer]);
-
-  const toggleMic = useCallback(() => {
-    setMicMuted((m) => {
-      const next = !m;
-      if (localStream.current) for (const t of localStream.current.getAudioTracks()) t.enabled = !next;
-      return next;
-    });
-  }, []);
-
   const togglePeerMute = useCallback((id: number) => {
     setMutedPeers((prev) => {
       const next = { ...prev, [id]: !prev[id] };
@@ -305,15 +260,64 @@ export function useVoiceChat(code: string, token: string | null, myId: number | 
     });
   }, []);
 
-  // While active: drain our signalling mailbox on a fast poll, and keep the
-  // mesh in sync with the room's player list (connect to newcomers, drop
-  // leavers).
+  // Turn your own mic on or off. On the first "on" we ask for the mic (the tap
+  // is the required user gesture) and add it to every connection, which offers
+  // your audio to everyone already listening. "Off" just silences the track —
+  // you stay connected so you keep hearing the room.
+  const toggleMic = useCallback(async () => {
+    if (micOnRef.current) {
+      micOnRef.current = false;
+      setMicOn(false);
+      if (localStream.current) for (const t of localStream.current.getAudioTracks()) t.enabled = false;
+      return;
+    }
+    setError(null);
+    if (!localStream.current) {
+      setConnecting(true);
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        localStream.current = stream;
+        // Reach every human in the room and put our mic on the wire. New peers
+        // are created with the track (they'll offer); existing listen-only peers
+        // get the track added, which triggers a fresh offer.
+        for (const id of peerIdsRef.current) {
+          if (id === myId) continue;
+          const existing = peers.current.get(id);
+          if (existing) for (const t of stream.getTracks()) existing.pc.addTrack(t, stream);
+          else ensurePeer(id);
+        }
+      } catch {
+        setError("Mic blocked — allow microphone access to talk.");
+        setConnecting(false);
+        return;
+      }
+      setConnecting(false);
+    } else {
+      for (const t of localStream.current.getAudioTracks()) t.enabled = true;
+    }
+    micOnRef.current = true;
+    setMicOn(true);
+  }, [myId, ensurePeer]);
+
+  // Always-open mesh: while the game is playing, drain our signalling mailbox so
+  // we answer anyone who starts talking, and keep connections tidy as players
+  // come and go. No mic is taken until you tap the button.
   useEffect(() => {
-    if (!active || !token || myId === null) return;
+    if (!enabled || !token || myId === null) return;
+    // Stable for the component's life — captured so the cleanup isn't reading a
+    // ref that lint thinks may have moved on.
+    const peerMap = peers.current;
     let cancelled = false;
+    let announced = false;
     let timer: ReturnType<typeof setTimeout>;
 
     const tick = async () => {
+      // Flip "listening" on from inside the timer (not synchronously in the
+      // effect body, which would trip the set-state-in-effect rule).
+      if (!announced) {
+        announced = true;
+        setListening(true);
+      }
       try {
         const res = await fetch(`/api/rooms/${code}/signal?token=${token}`, { cache: "no-store" });
         if (res.ok) {
@@ -323,37 +327,43 @@ export function useVoiceChat(code: string, token: string | null, myId: number | 
       } catch {
         /* transient — next tick retries */
       }
-      // Reconcile the mesh with who's actually in the room now.
       const ids = new Set(peerIdsRef.current.filter((id) => id !== myId));
-      for (const id of ids) if (!peers.current.has(id)) ensurePeer(id);
+      // Only reach out proactively when we're the one talking, so newcomers hear
+      // us. Pure listeners connect lazily, when someone offers.
+      if (localStream.current) {
+        for (const id of ids) if (!peers.current.has(id)) ensurePeer(id);
+      }
       for (const id of [...peers.current.keys()]) if (!ids.has(id)) closePeer(id);
 
       if (!cancelled) timer = setTimeout(tick, SIGNAL_POLL_MS);
     };
     timer = setTimeout(tick, 0);
+
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      for (const id of [...peerMap.keys()]) {
+        post(id, "bye", null);
+        closePeer(id);
+      }
+      if (localStream.current) {
+        for (const t of localStream.current.getTracks()) t.stop();
+        localStream.current = null;
+      }
+      micOnRef.current = false;
+      setListening(false);
+      setMicOn(false);
+      setPeerStatus({});
     };
-  }, [active, token, myId, code, handleSignal, ensurePeer, closePeer]);
-
-  // Tidy up if the component unmounts while talking.
-  useEffect(() => {
-    return () => {
-      if (activeRef.current) leave();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enabled, token, myId, code, handleSignal, ensurePeer, closePeer, post]);
 
   return {
-    active,
+    listening,
+    micOn,
     connecting,
-    micMuted,
     error,
     peerStatus,
     mutedPeers,
-    join,
-    leave,
     toggleMic,
     togglePeerMute,
   };
