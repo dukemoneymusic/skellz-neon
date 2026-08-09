@@ -96,21 +96,45 @@ function applyShot(room: Room, roster: Player[], shooterId: string, input: ShotI
     return null;
   };
 
+  // The first seat on a given team, in grouped order — where a fresh team round
+  // restarts from.
+  const firstOnTeam = (team: number | undefined): number | null => {
+    for (const allowStuck of [false, true]) {
+      for (let i = 0; i < order.length; i++) {
+        const cap = result.state.caps.find((c) => c.id === order[i]);
+        if (cap?.alive && cap.team === team && (allowStuck || !cap.stuck)) return i;
+      }
+    }
+    return null;
+  };
+
   let nextIndex = room.turnIndex;
+  let teamRoundAdvanced = room.teamRoundAdvanced;
   if (room.teamMode) {
-    // Free-for-all rule, applied to the team: you only shoot again by making a
-    // box or hitting the OPPOSITE team (that's what sets extraTurn). On a hit
-    // like that the team keeps the ball — it goes to the next team-mate, so the
-    // side plays back-to-back. A miss ends the team's go and hands over to the
-    // other team. Nothing is a free extra shot.
+    // Co-op turns are round-based. A "round" is one shot each for the team on
+    // turn; team-mates go back-to-back no matter who misses. If ANYONE on the
+    // team made a box or hit the other team during the round (extraTurn), the
+    // whole team shoots again; a round where nobody scores hands over to the
+    // other team.
     const myTeam = result.state.caps.find((c) => c.id === shooterId)?.team;
-    const nextTeammate = pick((c) => c.team === myTeam);
-    const nextOpponent = pick((c) => c.team !== myTeam);
-    // `pick` already falls back to anyone-alive via its stuck pass, but the
-    // team predicate can still come up empty (e.g. the other side is wiped);
-    // in that case fall through to whoever can still shoot.
-    const anyone = pick(() => true);
-    nextIndex = (result.extraTurn ? nextTeammate : nextOpponent) ?? anyone ?? room.turnIndex;
+    const advancedSoFar = room.teamRoundAdvanced || result.extraTurn;
+    // The very next living seat in grouped order — a team-mate if the round is
+    // still going, otherwise the other team (the round is complete).
+    const nextAnyIdx = pick(() => true);
+    const nextCap = nextAnyIdx === null ? undefined : result.state.caps.find((c) => c.id === order[nextAnyIdx]);
+    if (nextCap && nextCap.team === myTeam) {
+      // Still team-mates to shoot this round — carry the running tally along.
+      nextIndex = nextAnyIdx!;
+      teamRoundAdvanced = advancedSoFar;
+    } else if (advancedSoFar) {
+      // Round done and the team scored at least once — everyone goes again.
+      nextIndex = firstOnTeam(myTeam) ?? nextAnyIdx ?? room.turnIndex;
+      teamRoundAdvanced = false; // a brand-new round
+    } else {
+      // A whole round with nothing to show — over to the other team.
+      nextIndex = nextAnyIdx ?? room.turnIndex;
+      teamRoundAdvanced = false;
+    }
   } else if (!result.extraTurn) {
     // Free-for-all: a make/hit lets you shoot again (index unchanged); a miss
     // passes to the next player.
@@ -124,6 +148,7 @@ function applyShot(room: Room, roster: Player[], shooterId: string, input: ShotI
     state: result.state,
     turnIndex: nextIndex,
     seq,
+    teamRoundAdvanced,
     // Every shot restarts the current player's 45s clock — whether the turn
     // passed on or the shooter earned another go.
     turnStartedAt: Date.now(),
@@ -219,6 +244,7 @@ function restoreRoom(code: string, body: Body) {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       turnStartedAt: Date.now(),
+      teamRoundAdvanced: false,
       chat: [],
       chatSeq: 0,
       nextChatId: 1,
@@ -387,6 +413,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
         status: "playing",
         state: { caps: freshCaps(room, roster), log: ["Game on! Flick from START for box 1."] },
         turnIndex: 0,
+        teamRoundAdvanced: false,
         seq: room.seq + 1,
         turnStartedAt: Date.now(),
         lastShot: null,
@@ -407,6 +434,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
         status: "playing",
         state: { caps: freshCaps(room, roster), log: ["Next borough! Flick from START."] },
         turnIndex: 0,
+        teamRoundAdvanced: false,
         seq: room.seq + 1,
         turnStartedAt: Date.now(),
         lastShot: null,
