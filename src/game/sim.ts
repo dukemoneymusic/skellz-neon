@@ -466,23 +466,38 @@ export function resolveShot(
   let boxesFromHits = 0; // one box per opponent top struck this shot
   let didLegalHit = false; // did any legal contact happen? (grants another shot)
 
-  // ILLEGAL STRIKE: you must make box 1 before you may hit ANYBODY'S top — hit
-  // one early and you start all over. Killas are always armed, so this never
-  // catches them.
-  if (liveHits.length > 0 && !armed) {
+  // ILLEGAL STRIKE. A contact is void and sends you all the way back to START if
+  // EITHER top hadn't made box 1 yet — in both free-for-all and team play:
+  //   • you haven't made box 1 yourself, OR
+  //   • you touched an opponent top that hasn't made box 1 (a top still working
+  //     its way in is off-limits — clip it and you start all over).
+  // Team-mates are exempt (tapping your own side is handled below as a harmless
+  // no-op). Killas are always "armed": they can't be the un-armed shooter, and
+  // if a killa clips a not-yet-in top the strike is simply void — they have no
+  // START to go back to.
+  const hitNotYetIn = liveHits.some((id) => {
+    const v = caps.find((c) => c.id === id);
+    if (!v) return false;
+    const friendly = teamMode && v.team === shooter.team;
+    return !friendly && !isArmed(v);
+  });
+  // The killa is the endgame hunter — it can take out ANYONE (and has no START
+  // to go back to), so it is exempt from this foul.
+  const illegalStrike = !shooter.killer && liveHits.length > 0 && (!armed || hitNotYetIn);
+  if (illegalStrike) {
     shooter.step = 0;
     shooter.missedTarget = false;
     shooter.triedBreak = false;
     sendHome(state, shooter);
     shooter.score = Math.max(0, shooter.score - 5);
-    events.push(`🚫 ${shooter.name} hit a top before making 1 — START ALL OVER!`);
+    events.push(`🚫 ${shooter.name} hit a top before it made box 1 — START ALL OVER!`);
     resolvedMove = true;
   }
 
   for (const id of liveHits) {
     const victim = caps.find((c) => c.id === id);
     if (!victim) continue;
-    if (!armed) continue; // an illegal strike is void — it frees nobody
+    if (illegalStrike) continue; // an illegal strike is void — no hits count
     const friendly = teamMode && victim.team === shooter.team;
 
     // Knocking a stuck top out of the middle pays the panel value, and doesn't

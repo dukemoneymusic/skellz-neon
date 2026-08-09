@@ -249,6 +249,56 @@ test("you cannot strike a top before making box 1", () => {
   );
 });
 
+test("an armed shooter that clips a not-yet-in top starts all over (both modes)", () => {
+  // Even fully armed, touching an opponent that hasn't made box 1 is a foul.
+  for (const teamMode of [false, true]) {
+    const state = newState(2);
+    const shooter = state.caps[0];
+    const victim = state.caps[1];
+    shooter.step = 5; // armed
+    shooter.onBoard = true;
+    shooter.team = 0;
+    shooter.x = -6;
+    shooter.z = 0;
+    victim.team = 1; // opponent
+    victim.onBoard = true;
+    victim.step = 0; // has NOT made box 1
+    victim.x = 0;
+    victim.z = 0; // dead ahead on the shot line
+
+    const res = resolveShot(state, teamMode, false, 19, shooter.id, { angle: 0, power: 0.9 });
+    const after = res.state.caps.find((c) => c.id === shooter.id)!;
+    assert.equal(after.step, 0, `mode=${teamMode}: the shooter is sent back to START`);
+    assert.ok(
+      res.events.some((e) => e.includes("START ALL OVER")),
+      `mode=${teamMode}: expected a foul; events: ${res.events.join(" | ")}`,
+    );
+    assert.equal(res.extraTurn, false, `mode=${teamMode}: a foul is no free extra shot`);
+  }
+});
+
+test("tapping a not-yet-in team-mate is harmless, not a foul", () => {
+  const state = newState(2);
+  const shooter = state.caps[0];
+  const mate = state.caps[1];
+  shooter.step = 5;
+  shooter.onBoard = true;
+  shooter.team = 0;
+  shooter.x = -6;
+  shooter.z = 0;
+  mate.team = 0; // same team
+  mate.onBoard = true;
+  mate.step = 0; // hasn't made box 1
+  mate.x = 0;
+  mate.z = 0;
+
+  const res = resolveShot(state, true, false, 19, shooter.id, { angle: 0, power: 0.9 });
+  assert.ok(
+    !res.events.some((e) => e.includes("START ALL OVER")),
+    `tapping your own not-yet-in team-mate must not foul; events: ${res.events.join(" | ")}`,
+  );
+});
+
 /** An armed shooter that ploughs through a cluster of `n` opponent tops. */
 function multiHit(n: number) {
   const state = newState(n + 1);

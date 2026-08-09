@@ -1,4 +1,4 @@
-import { LEVELS, PANELS, boxByNumber, frictionFor, panelCenter } from "./board";
+import { CAP_R, LEVELS, PANELS, boxByNumber, frictionFor, panelCenter } from "./board";
 import { MAX_LAUNCH, isArmed, routeTarget, type Cap, type GameState, type ShotInput } from "./sim";
 
 /**
@@ -143,12 +143,48 @@ export function computeBotShot(
   const angle = Math.atan2(dz, dx);
 
   const friction = frictionFor(levelIdx);
+
+  // Don't foul: touching a top that hasn't made box 1 (or ANY top before we're
+  // armed ourselves) sends us all the way back to START. If firing straight at
+  // our target would clip such a top, pull up just short of it instead — a
+  // wasted-but-safe shot beats resetting. Killas are exempt from the foul, so
+  // they never dodge; team-mates can't foul us either.
+  let effDist = dist;
+  let dodged = false;
+  if (!cap.killer) {
+    const armed = isArmed(cap);
+    const ux = Math.cos(angle);
+    const uz = Math.sin(angle);
+    const collide = CAP_R * 2 + 0.2;
+    let safe = dist;
+    for (const c of state.caps) {
+      if (c.id === cap.id || !c.alive || !c.onBoard) continue;
+      if (teamMode && c.team === cap.team) continue;
+      if (armed && isArmed(c)) continue; // an armed opponent is a legal target
+      const rx = c.x - cap.x;
+      const rz = c.z - cap.z;
+      const along = rx * ux + rz * uz; // how far ahead along the shot
+      if (along <= 0) continue; // it's behind the shot
+      const perp = Math.abs(rx * uz - rz * ux); // sideways gap from the shot line
+      if (perp > collide) continue; // the shot misses it
+      const back = Math.sqrt(Math.max(0, collide * collide - perp * perp));
+      safe = Math.min(safe, along - back - 0.1);
+    }
+    if (safe < dist) {
+      effDist = Math.max(0.2, safe);
+      dodged = true;
+    }
+  }
+
   // Aim to stop dead on the target, then add a little judgement error to the
   // strength as well, so bots also over- and under-hit rather than only
-  // mis-aiming. When going for a top, lean slightly long so contact is made.
+  // mis-aiming. When going for a top, lean slightly long so contact is made —
+  // but when dodging a foul, lean SHORT so we're sure to pull up in time.
   const chasingTop = aim.why.startsWith("hunting") || aim.why.startsWith("knocking");
-  const strengthError = 1 + (rng() - 0.5) * 0.12 * (spread / 4.1) + (chasingTop ? 0.14 : 0);
-  const power = clamp(powerForDistance(dist, friction) * strengthError, 0.012, 1);
+  const strengthError = dodged
+    ? 0.9
+    : 1 + (rng() - 0.5) * 0.12 * (spread / 4.1) + (chasingTop ? 0.14 : 0);
+  const power = clamp(powerForDistance(effDist, friction) * strengthError, 0.012, 1);
 
   // A pinned top may only tap out of the middle — the sim clamps this too, but
   // matching it here keeps the bot's own intent honest.
