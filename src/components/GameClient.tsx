@@ -910,7 +910,39 @@ export default function GameClient({ code }: { code: string }) {
           </button>
         </div>
 
-        <div className="pointer-events-auto relative">
+        <div className="pointer-events-auto flex items-center gap-2">
+          {/* Quick voice on/off — no menu needed. Tap to join the mesh (asks for
+              mic the first time); tap again to leave. */}
+          <button
+            onClick={() => {
+              unlockAudio();
+              if (voice.active || voice.connecting) voice.leave();
+              else voice.join();
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            title={voice.active ? "Voice on — tap to turn off" : "Voice off — tap to turn on"}
+            aria-pressed={voice.active}
+            className={`relative flex h-12 w-12 items-center justify-center rounded-full border text-xl backdrop-blur ${
+              voice.active
+                ? "border-emerald-300 bg-emerald-400/25 text-emerald-100"
+                : voice.error
+                  ? "border-rose-400/70 bg-black/55 text-rose-200"
+                  : "border-white/15 bg-black/55 text-white/75"
+            }`}
+          >
+            🎙️
+            {voice.active && (
+              <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-black" />
+            )}
+            {voice.connecting && (
+              <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-300 ring-2 ring-black" />
+            )}
+            {!voice.active && !voice.connecting && (
+              // Diagonal slash = off.
+              <span className="pointer-events-none absolute h-7 w-0.5 rotate-45 rounded-full bg-rose-400/90" />
+            )}
+          </button>
+          <div className="relative">
           <button
             onClick={() => setShowMenu((v) => !v)}
             // Big, thumb-friendly tap target (64px). Combined with the whole
@@ -993,6 +1025,7 @@ export default function GameClient({ code }: { code: string }) {
               </button>
             </div>
           )}
+          </div>
         </div>
       </div>
 
