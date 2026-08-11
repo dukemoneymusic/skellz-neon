@@ -22,6 +22,7 @@ import {
 import { isMuted, playShootSound, setMuted, unlockAudio } from "@/game/audio";
 import { MIN_CHARGE, powerAt } from "@/game/power";
 import { useRoomToken, useStoredName } from "@/game/session";
+import { useGamepad, type GamepadControls } from "@/game/useGamepad";
 import { useVoiceChat } from "@/game/useVoiceChat";
 
 const SWATCHES = [
@@ -800,6 +801,64 @@ export default function GameClient({ code }: { code: string }) {
     () => [...caps].sort((a, b) => Number(b.alive) - Number(a.alive) || b.score - a.score),
     [caps],
   );
+
+  // ---- PS5 / Xbox controller support ----
+  // Feed the gamepad loop the current turn state + the same actions the touch
+  // controls use, refreshed every render so the loop never reads stale values.
+  const padControlsRef = useRef<GamepadControls | null>(null);
+  // Refresh after every render (assigning a ref during render isn't allowed).
+  // This only writes a ref — it never setStates — so the exhaustive-deps
+  // "infinite update" concern doesn't apply; it must run every render to stay
+  // current for the gamepad loop.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    padControlsRef.current = {
+      isMyTurn,
+      busy,
+      playback: !!playback,
+      origin,
+      spin,
+      canPlace,
+      placing,
+      placedFrom,
+      placedValid,
+      clampPlace,
+      myCap,
+      targetPointFor,
+      powerRef,
+      setAim,
+      startCharging,
+      stopCharging,
+      shoot,
+      handleNudge,
+      setSpin: (f) => setSpin(f),
+      setZoom: (f) => setZoom(f),
+      setPlacing: (f) => setPlacing(f),
+      setPlacedFrom,
+      togglePanel: (name) => {
+        if (name === "menu") setShowMenu((v) => !v);
+        else if (name === "standings") setShowStandings((v) => !v);
+        else if (name === "chat") {
+          setLastSeenChat(data?.room.chatSeq ?? 0);
+          setShowChat((v) => !v);
+        }
+      },
+      closePanels: () => {
+        setShowMenu(false);
+        setShowStandings(false);
+        setShowChat(false);
+        setShowColors(false);
+      },
+    };
+  });
+  const { connected: padConnected } = useGamepad(padControlsRef);
+  const padHinted = useRef(false);
+  useEffect(() => {
+    if (padConnected && !padHinted.current) {
+      padHinted.current = true;
+      pushMessages(["🎮 Controller ready — left stick aims · hold Ⓐ/✕ to shoot"]);
+    }
+  }, [padConnected, pushMessages]);
 
   if (kicked) {
     return (
