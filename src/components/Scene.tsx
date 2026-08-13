@@ -4,12 +4,6 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
-import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
-import { VignetteShader } from "three/examples/jsm/shaders/VignetteShader.js";
 import {
   ASPHALT,
   ASPHALT_CX,
@@ -686,38 +680,6 @@ function Caps({
   );
 }
 
-/**
- * Cinematic post-processing — a clean, filmic pass (NO bloom/glow): filmic
- * tone-mapping, SMAA anti-aliasing for crisp neon edges, and a whisper of a
- * vignette. Taking a render priority hands the frame loop to us, so the
- * composer draws instead of the default renderer.
- */
-function Cinematic() {
-  const { gl, scene, camera, size } = useThree();
-
-  const composer = useMemo(() => {
-    const c = new EffectComposer(gl);
-    c.addPass(new RenderPass(scene, camera));
-    c.addPass(new OutputPass()); // filmic tone-map (gl.toneMapping) + sRGB
-    c.addPass(new SMAAPass()); // crisp edges on the fine chalk lines
-    const vignette = new ShaderPass(VignetteShader);
-    vignette.uniforms.offset.value = 1.05;
-    vignette.uniforms.darkness.value = 1.1; // barely-there edge falloff
-    c.addPass(vignette);
-    return c;
-  }, [gl, scene, camera]);
-
-  useEffect(() => {
-    composer.setSize(size.width, size.height);
-    composer.setPixelRatio(gl.getPixelRatio());
-  }, [composer, size, gl]);
-
-  useEffect(() => () => composer.dispose(), [composer]);
-
-  useFrame(() => composer.render(), 1);
-  return null;
-}
-
 const drawStart = drawLane("S T A R T", (level) => level.c1);
 const drawKilla = drawLane("K I L L A", (level) => level.c2);
 
@@ -751,14 +713,7 @@ export default function Scene({
       // plenty for a top-down board and a quarter the fill cost of 2048.
       dpr={[1, 1.5]}
       camera={{ position: [ASPHALT_CX, 230, 260], fov: 45, near: 0.4, far: 5000 }}
-      // Filmic tone-mapping (applied once, by the post FX OutputPass) is what
-      // gives the neon its rich cinematic roll-off instead of flat clipping.
-      gl={{
-        powerPreference: "high-performance",
-        antialias: true,
-        toneMapping: THREE.ACESFilmicToneMapping,
-        toneMappingExposure: 1.15,
-      }}
+      gl={{ powerPreference: "high-performance", antialias: true }}
     >
       <color attach="background" args={["#04060c"]} />
       <fog attach="fog" args={["#04060c", 380, 1000]} />
@@ -801,7 +756,6 @@ export default function Scene({
       />
       {aim && !playback && <AimArrow from={aim.from} angle={aim.angle} power={aim.power} />}
       <Rig target={[focus?.x ?? 0, focus?.z ?? 0]} spin={spin} zoom={zoom} followRef={followRef} isPlaying={!!playback} />
-      <Cinematic />
     </Canvas>
   );
 }
