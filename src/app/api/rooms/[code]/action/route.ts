@@ -96,44 +96,18 @@ function applyShot(room: Room, roster: Player[], shooterId: string, input: ShotI
     return null;
   };
 
-  // The first seat on a given team, in grouped order — where a fresh team round
-  // restarts from.
-  const firstOnTeam = (team: number | undefined): number | null => {
-    for (const allowStuck of [false, true]) {
-      for (let i = 0; i < order.length; i++) {
-        const cap = result.state.caps.find((c) => c.id === order[i]);
-        if (cap?.alive && cap.team === team && (allowStuck || !cap.stuck)) return i;
-      }
-    }
-    return null;
-  };
-
   let nextIndex = room.turnIndex;
-  let teamRoundAdvanced = room.teamRoundAdvanced;
   if (room.teamMode) {
-    // Co-op turns are round-based. A "round" is one shot each for the team on
-    // turn; team-mates go back-to-back no matter who misses. If ANYONE on the
-    // team made a box or hit the other team during the round (extraTurn), the
-    // whole team shoots again; a round where nobody scores hands over to the
-    // other team.
+    // Co-op turn: each living team-mate shoots ONCE (back-to-back), then the
+    // turn passes to the other team — whether they scored or missed. One round
+    // per side, no repeats, so a team can't blitz the whole route in a single go.
     const myTeam = result.state.caps.find((c) => c.id === shooterId)?.team;
-    const advancedSoFar = room.teamRoundAdvanced || result.extraTurn;
-    // The very next living seat in grouped order — a team-mate if the round is
-    // still going, otherwise the other team (the round is complete).
     const nextAnyIdx = pick(() => true);
     const nextCap = nextAnyIdx === null ? undefined : result.state.caps.find((c) => c.id === order[nextAnyIdx]);
     if (nextCap && nextCap.team === myTeam) {
-      // Still team-mates to shoot this round — carry the running tally along.
-      nextIndex = nextAnyIdx!;
-      teamRoundAdvanced = advancedSoFar;
-    } else if (advancedSoFar) {
-      // Round done and the team scored at least once — everyone goes again.
-      nextIndex = firstOnTeam(myTeam) ?? nextAnyIdx ?? room.turnIndex;
-      teamRoundAdvanced = false; // a brand-new round
+      nextIndex = nextAnyIdx!; // still team-mates to shoot this round
     } else {
-      // A whole round with nothing to show — over to the other team.
-      nextIndex = nextAnyIdx ?? room.turnIndex;
-      teamRoundAdvanced = false;
+      nextIndex = nextAnyIdx ?? room.turnIndex; // round done → over to the other team
     }
   } else if (!result.extraTurn) {
     // Free-for-all: a make/hit lets you shoot again (index unchanged); a miss
@@ -148,7 +122,6 @@ function applyShot(room: Room, roster: Player[], shooterId: string, input: ShotI
     state: result.state,
     turnIndex: nextIndex,
     seq,
-    teamRoundAdvanced,
     // Every shot restarts the current player's 45s clock — whether the turn
     // passed on or the shooter earned another go.
     turnStartedAt: Date.now(),
@@ -244,7 +217,6 @@ function restoreRoom(code: string, body: Body) {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       turnStartedAt: Date.now(),
-      teamRoundAdvanced: false,
       chat: [],
       chatSeq: 0,
       nextChatId: 1,
@@ -413,7 +385,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
         status: "playing",
         state: { caps: freshCaps(room, roster), log: ["Game on! Flick from START for box 1."] },
         turnIndex: 0,
-        teamRoundAdvanced: false,
         seq: room.seq + 1,
         turnStartedAt: Date.now(),
         lastShot: null,
@@ -434,7 +405,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
         status: "playing",
         state: { caps: freshCaps(room, roster), log: ["Next borough! Flick from START."] },
         turnIndex: 0,
-        teamRoundAdvanced: false,
         seq: room.seq + 1,
         turnStartedAt: Date.now(),
         lastShot: null,
@@ -514,9 +484,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
         if (cap.step === 0) {
           placed = clampBehindStart(fx, fz);
         } else if (room.teamMode && cap.onBoard && !cap.killer && !cap.stuck && cap.step > 0) {
-          const box = boxByNumber(ROUTE[cap.step - 1]);
-          const anchor = box ?? { x: cap.x, z: cap.z };
-          placed = clampAroundBox(fx, fz, anchor.x, anchor.z);
+          // Free reposition, anchored on where the top landed (matches the
+          // client): slide it around, don't snap it back to the box centre.
+          placed = clampAroundBox(fx, fz, cap.x, cap.z);
         }
         if (placed) {
           const caps = room.state.caps.map((c) => (c.id === currentId ? { ...c, x: placed.x, z: placed.z } : c));

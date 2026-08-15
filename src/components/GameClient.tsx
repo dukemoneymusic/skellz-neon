@@ -519,12 +519,12 @@ export default function GameClient({ code }: { code: string }) {
   const atBoxPlacement =
     isMyTurn && !!myCap && teamMode && myCap.onBoard && !myCap.killer && !myCap.stuck && myCap.step > 0;
   const canPlace = atStartBreak || atBoxPlacement;
-  // The centre of the box you're clustered on — the disc your reposition drag
-  // is clamped to. Falls back to the top's real spot if the box is unknown.
+  // Anchor the reposition drag on where the top actually landed, not the box
+  // centre — so Move slides it freely from there instead of snapping it back
+  // into the box.
   const boxAnchor = useMemo(() => {
     if (!atBoxPlacement || !myCap) return null;
-    const box = boxByNumber(ROUTE[myCap.step - 1]);
-    return box ? { x: box.x, z: box.z } : { x: myCap.x, z: myCap.z };
+    return { x: myCap.x, z: myCap.z };
   }, [atBoxPlacement, myCap]);
   // Clamp a candidate spot to whichever placement zone is active.
   const clampPlace = useCallback(

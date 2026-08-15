@@ -319,6 +319,11 @@ export function resolveShot(
         const a = caps[i];
         const b = caps[j];
         if (!inPlay(a) || !inPlay(b)) continue;
+        // Team-mates pass straight through each other — so a top shooting out of
+        // the box the squad shares never clips a team-mate sitting in it. (A
+        // STUCK team-mate is the one exception, so you can still knock them free
+        // of the middle.)
+        if (teamMode && a.team === b.team && !a.stuck && !b.stuck) continue;
         const px = a.x - b.x;
         const pz = a.z - b.z;
         const d0 = Math.hypot(px, pz);
