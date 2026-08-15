@@ -140,7 +140,7 @@ test("breaking into any middle panel starts your run from box 3", () => {
   }
 });
 
-test("drilling 13 on the break blazes 3 into the backward run — box 10, next 9", () => {
+test("drilling 13 on the break turns you around — box 13 made, next 12", () => {
   const state = newState(2);
   const cap = state.caps[0];
   cap.x = 0; // dead centre in box 13
@@ -153,12 +153,12 @@ test("drilling 13 on the break blazes 3 into the backward run — box 10, next 9
   // A dead-still flick so the break rule reads the 13 it's parked in.
   const res = resolveShot(state, false, false, 0, cap.id, { angle: Math.PI, power: 0.01 });
   const after = res.state.caps[0];
-  const box10 = boxByNumber(10)!;
+  const box13 = boxByNumber(13)!;
 
-  assert.equal(after.step, 17, "step 17 — box 10 made, box 9 next");
-  assert.equal(ROUTE[after.step], 9, "next target is 9");
-  assert.equal(after.x, box10.x, "sits on box 10");
-  assert.equal(after.z, box10.z);
+  assert.equal(after.step, 14, "step 14 — box 13 made, now on the backward run");
+  assert.equal(ROUTE[after.step], 12, "next target is 12 (heading backwards)");
+  assert.equal(after.x, box13.x, "sits on box 13");
+  assert.equal(after.z, box13.z);
 });
 
 test("on the break, bots aim for a middle panel, never box 13", () => {

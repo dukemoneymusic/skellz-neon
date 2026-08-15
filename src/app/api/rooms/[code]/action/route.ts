@@ -98,16 +98,15 @@ function applyShot(room: Room, roster: Player[], shooterId: string, input: ShotI
 
   let nextIndex = room.turnIndex;
   if (room.teamMode) {
-    // Co-op turn: each living team-mate shoots ONCE (back-to-back), then the
-    // turn passes to the other team — whether they scored or missed. One round
-    // per side, no repeats, so a team can't blitz the whole route in a single go.
+    // Co-op turn: the team keeps the ball as long as it keeps scoring. Make the
+    // box you're going for OR hit the opposite team (extraTurn) and the turn
+    // passes to your next team-mate — the side plays on. The first shot that
+    // does neither ends the team's turn and hands over to the other team.
     const myTeam = result.state.caps.find((c) => c.id === shooterId)?.team;
-    const nextAnyIdx = pick(() => true);
-    const nextCap = nextAnyIdx === null ? undefined : result.state.caps.find((c) => c.id === order[nextAnyIdx]);
-    if (nextCap && nextCap.team === myTeam) {
-      nextIndex = nextAnyIdx!; // still team-mates to shoot this round
+    if (result.extraTurn) {
+      nextIndex = pick((c) => c.team === myTeam) ?? pick(() => true) ?? room.turnIndex;
     } else {
-      nextIndex = nextAnyIdx ?? room.turnIndex; // round done → over to the other team
+      nextIndex = pick((c) => c.team !== myTeam) ?? pick(() => true) ?? room.turnIndex;
     }
   } else if (!result.extraTurn) {
     // Free-for-all: a make/hit lets you shoot again (index unchanged); a miss
