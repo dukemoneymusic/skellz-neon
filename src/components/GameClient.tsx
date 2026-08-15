@@ -549,33 +549,13 @@ export default function GameClient({ code }: { code: string }) {
   const origin = placedValid ?? (myCap ? { x: myCap.x, z: myCap.z } : null);
 
   // What the 3D scene draws: your own top follows the placement while you're
-  // setting it, everyone else is untouched.
+  // setting it, everyone else is untouched. Every top stays on screen at all
+  // times — team-mates piled on a box are spread into a small grid (see
+  // clusterTeamInBox) so they read as separate tops rather than overlapping.
   const displayCaps = useMemo(() => {
     if (!placedValid || !myId) return caps;
     return caps.map((c) => (c.id === myId ? { ...c, x: placedValid.x, z: placedValid.z } : c));
   }, [caps, placedValid, myId]);
-
-  // Co-op: when a team is piled into one box the tops overlap, so only ONE per
-  // clustered box is drawn — whoever's turn it is (or a stand-in when the side
-  // isn't up). The rest reappear as the turn moves to each team-mate.
-  const sceneCaps = useMemo(() => {
-    if (!teamMode) return displayCaps;
-    const groups = new Map<string, Cap[]>();
-    for (const c of displayCaps) {
-      if (!c.alive || c.killer || !c.onBoard || c.step <= 0) continue;
-      const key = `${c.team}|${c.step}`;
-      const g = groups.get(key);
-      if (g) g.push(c);
-      else groups.set(key, [c]);
-    }
-    const hidden = new Set<string>();
-    for (const members of groups.values()) {
-      if (members.length < 2) continue;
-      const keep = members.find((m) => m.id === turnId) ?? members[0];
-      for (const m of members) if (m.id !== keep.id) hidden.add(m.id);
-    }
-    return hidden.size ? displayCaps.filter((c) => !hidden.has(c.id)) : displayCaps;
-  }, [displayCaps, teamMode, turnId]);
 
   /**
    * Drive the CPU turns.
@@ -959,7 +939,7 @@ export default function GameClient({ code }: { code: string }) {
         onPointerCancel={onPointerCancel}
       >
         <Scene
-          caps={sceneCaps}
+          caps={displayCaps}
           playback={playback}
           turnId={turnId}
           aim={aim}
