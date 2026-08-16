@@ -319,11 +319,6 @@ export function resolveShot(
         const a = caps[i];
         const b = caps[j];
         if (!inPlay(a) || !inPlay(b)) continue;
-        // Team-mates pass straight through each other — so a top shooting out of
-        // the box the squad shares never clips a team-mate sitting in it. (A
-        // STUCK team-mate is the one exception, so you can still knock them free
-        // of the middle.)
-        if (teamMode && a.team === b.team && !a.stuck && !b.stuck) continue;
         const px = a.x - b.x;
         const pz = a.z - b.z;
         const d0 = Math.hypot(px, pz);
@@ -626,11 +621,11 @@ export function resolveShot(
       // ---------------- THE BREAK SHOT (from START, target is 13) ----------------
       if (insideBox(13, shooter.x, shooter.z)) {
         if (!shooter.triedBreak) {
-          // Dead centre on the FIRST break makes box 13 and turns you straight
-          // around: you skip the whole forward run and start the backward run
-          // from the top — box 13 made, now heading down 13 → 12.
-          shooter.step = BACK_STEP; // box 13 made (ROUTE[13]); target 12 (ROUTE[14])
-          const box = boxByNumber(13);
+          // Dead centre on the FIRST break skips the whole forward run AND
+          // blazes 3 boxes into the backward run: box 13 is made, then 12·11·10
+          // as the free 3 — so you land on box 10 and shoot down toward 9.
+          shooter.step = BACK_STEP + 3; // target 9 (ROUTE[17]); box 10 made
+          const box = boxByNumber(10);
           if (box) {
             shooter.x = box.x;
             shooter.z = box.z;
@@ -640,7 +635,9 @@ export function resolveShot(
           shooter.stuckValue = 0;
           shooter.missedTarget = false;
           shooter.score += 25;
-          events.push(`🔄 ${shooter.name} drills the middle on the break — turns around, running 13 → 12!`);
+          events.push(
+            `🔄 ${shooter.name} drills the middle on the break — skips ahead 3, now running box 10 → 9!`,
+          );
           extraTurn = true;
         } else {
           // If you already missed the first shot from start, 13 is nothing until you get there going forward.

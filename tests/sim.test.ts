@@ -140,7 +140,7 @@ test("breaking into any middle panel starts your run from box 3", () => {
   }
 });
 
-test("drilling 13 on the break turns you around — box 13 made, next 12", () => {
+test("drilling 13 on the break blazes 3 into the backward run — box 10, next 9", () => {
   const state = newState(2);
   const cap = state.caps[0];
   cap.x = 0; // dead centre in box 13
@@ -153,12 +153,12 @@ test("drilling 13 on the break turns you around — box 13 made, next 12", () =>
   // A dead-still flick so the break rule reads the 13 it's parked in.
   const res = resolveShot(state, false, false, 0, cap.id, { angle: Math.PI, power: 0.01 });
   const after = res.state.caps[0];
-  const box13 = boxByNumber(13)!;
+  const box10 = boxByNumber(10)!;
 
-  assert.equal(after.step, 14, "step 14 — box 13 made, now on the backward run");
-  assert.equal(ROUTE[after.step], 12, "next target is 12 (heading backwards)");
-  assert.equal(after.x, box13.x, "sits on box 13");
-  assert.equal(after.z, box13.z);
+  assert.equal(after.step, 17, "step 17 — box 10 made, box 9 next");
+  assert.equal(ROUTE[after.step], 9, "next target is 9");
+  assert.equal(after.x, box10.x, "sits on box 10");
+  assert.equal(after.z, box10.z);
 });
 
 test("on the break, bots aim for a middle panel, never box 13", () => {
@@ -396,7 +396,7 @@ test("dead-centre 13 after the run still makes you a killa", () => {
   assert.equal(res.state.caps[0].killer, true, `13 finish should crown a killa; events: ${res.events.join(" | ")}`);
 });
 
-test("team-mates pass through each other — no collision, no hit", () => {
+test("hitting your own teammate is not a hit — no boxes, no extra shot", () => {
   const state = newState(2);
   const shooter = state.caps[0];
   const mate = state.caps[1];
@@ -411,21 +411,17 @@ test("team-mates pass through each other — no collision, no hit", () => {
   shooter.x = -3;
   shooter.z = 0;
   mate.x = 0.5;
-  mate.z = 0; // dead in the shot line
+  mate.z = 0;
   const before = shooter.step;
-  const mateBefore = { x: mate.x, z: mate.z };
 
-  const res = resolveShot(state, /* teamMode */ true, false, 0, shooter.id, { angle: 0, power: 0.6 });
-  const afterShooter = res.state.caps.find((c) => c.id === shooter.id)!;
-  const afterMate = res.state.caps.find((c) => c.id === mate.id)!;
-  // The team-mate is untouched, and the shooter sails straight through it.
+  const res = resolveShot(state, /* teamMode */ true, false, 0, shooter.id, { angle: 0, power: 0.4 });
+  const after = res.state.caps[0];
+  assert.equal(res.extraTurn, false, "friendly fire must not grant another shot");
+  assert.equal(after.step, before, "friendly fire earns no boxes");
   assert.ok(
-    Math.hypot(afterMate.x - mateBefore.x, afterMate.z - mateBefore.z) < 0.05,
-    "a team-mate is never knocked",
+    res.events.some((e) => e.includes("teammate")),
+    `expected a teammate event; got: ${res.events.join(" | ")}`,
   );
-  assert.ok(afterShooter.x > mate.x + 0.5, "the shooter passes through the team-mate");
-  assert.equal(res.extraTurn, false, "passing a team-mate is not a hit");
-  assert.equal(afterShooter.step, before, "and earns no boxes");
 });
 
 test("landing your target first try blazes 3 boxes, after a miss only 1", () => {

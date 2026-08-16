@@ -44,6 +44,10 @@ export type Room = {
   updatedAt: number;
   /** When the current player's turn began — drives the 45s auto-shoot timer. */
   turnStartedAt: number;
+  /** Co-op only: has the team on turn made a box / hit a top somewhere in the
+   *  current round? A round is one shot each; if anyone scored, the whole team
+   *  shoots again, otherwise the turn passes to the other team. */
+  teamRoundAdvanced: boolean;
   /** Recent game chat, newest last; bumped chatSeq lets clients notice new lines. */
   chat: ChatMsg[];
   chatSeq: number;
@@ -157,6 +161,7 @@ export function createRoom(init: {
     createdAt: now,
     updatedAt: now,
     turnStartedAt: now,
+    teamRoundAdvanced: false,
     chat: [],
     chatSeq: 0,
     nextChatId: 1,

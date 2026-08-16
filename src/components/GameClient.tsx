@@ -519,12 +519,12 @@ export default function GameClient({ code }: { code: string }) {
   const atBoxPlacement =
     isMyTurn && !!myCap && teamMode && myCap.onBoard && !myCap.killer && !myCap.stuck && myCap.step > 0;
   const canPlace = atStartBreak || atBoxPlacement;
-  // Anchor the reposition drag on where the top actually landed, not the box
-  // centre — so Move slides it freely from there instead of snapping it back
-  // into the box.
+  // The centre of the box you're clustered on — the disc your reposition drag
+  // is clamped to. Falls back to the top's real spot if the box is unknown.
   const boxAnchor = useMemo(() => {
     if (!atBoxPlacement || !myCap) return null;
-    return { x: myCap.x, z: myCap.z };
+    const box = boxByNumber(ROUTE[myCap.step - 1]);
+    return box ? { x: box.x, z: box.z } : { x: myCap.x, z: myCap.z };
   }, [atBoxPlacement, myCap]);
   // Clamp a candidate spot to whichever placement zone is active.
   const clampPlace = useCallback(
@@ -554,25 +554,6 @@ export default function GameClient({ code }: { code: string }) {
     if (!placedValid || !myId) return caps;
     return caps.map((c) => (c.id === myId ? { ...c, x: placedValid.x, z: placedValid.z } : c));
   }, [caps, placedValid, myId]);
-
-  // Co-op: while a team WAITS on the box it's piled on, show ONLY the current
-  // shooter's top on that team — its team-mates sharing the box are hidden until
-  // it's their turn. But the moment a shot plays out, everyone reappears so you
-  // can watch all the tops move. Nobody else is ever touched: the other team and
-  // anyone not clustered stay fully visible.
-  const sceneCaps = useMemo(() => {
-    if (!teamMode || !turnId || playback) return displayCaps;
-    const cur = displayCaps.find((c) => c.id === turnId);
-    if (!cur || cur.killer || !cur.onBoard || cur.step <= 0) return displayCaps;
-    const hidden = new Set<string>();
-    for (const c of displayCaps) {
-      if (c.id === turnId || !c.alive || c.killer || !c.onBoard) continue;
-      if (c.team === cur.team && c.step === cur.step && Math.hypot(c.x - cur.x, c.z - cur.z) < 8) {
-        hidden.add(c.id);
-      }
-    }
-    return hidden.size ? displayCaps.filter((c) => !hidden.has(c.id)) : displayCaps;
-  }, [displayCaps, teamMode, turnId, playback]);
 
   /**
    * Drive the CPU turns.
@@ -956,7 +937,7 @@ export default function GameClient({ code }: { code: string }) {
         onPointerCancel={onPointerCancel}
       >
         <Scene
-          caps={sceneCaps}
+          caps={displayCaps}
           playback={playback}
           turnId={turnId}
           aim={aim}

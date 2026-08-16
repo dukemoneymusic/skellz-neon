@@ -244,11 +244,11 @@ export function clampBehindStart(x: number, z: number): { x: number; z: number }
 }
 
 // ---- free placement around your team's box --------------------------------
-// In a team game the whole squad gathers inside the same box after an advance.
-// Before shooting, Move lets a player slide their top freely to line up a clean
-// shot — anchored on where the top actually landed (NOT snapped back to the box
-// centre), out to this generous radius.
-export const BOX_PLACE_R = BOX * 1.35; // ~6.5 units of free play to reposition
+// In a team game the whole squad gathers inside the same box after an advance,
+// so before shooting each player may nudge their top anywhere within that one
+// box, out to its chalk line — enough room that team-mates never stack on the
+// same spot and collide when they shoot, while staying inside the box.
+export const BOX_PLACE_R = BOX / 2; // reach the chalk line, but stay in the box
 
 /**
  * Clamp a point into a disc of radius `radius` centred on a box. Used by the

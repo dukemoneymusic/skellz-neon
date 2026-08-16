@@ -16,7 +16,7 @@
  * immediately rather than lingering behind an old worker.
  */
 
-const VERSION = "skellz-v3";
+const VERSION = "skellz-v2";
 const SHELL = `${VERSION}-shell`;
 const STATIC = `${VERSION}-static`;
 const OFFLINE_URL = "/offline.html";
