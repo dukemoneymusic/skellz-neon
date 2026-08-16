@@ -46,6 +46,18 @@ export default function Home() {
 
   return (
     <main className="relative min-h-dvh overflow-hidden bg-[#05070d] text-white">
+      {/* Landing backdrop: drop an image at `public/landing-bg.jpg` and it shows
+          here, darkened so the UI stays readable. No file = just the dark
+          background (the image request simply 404s and this layer stays empty). */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-55"
+        style={{ backgroundImage: "url(/landing-bg.jpg)" }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#05070d]/75 via-[#05070d]/55 to-[#05070d]/95"
+      />
       <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-cyan-500/25 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-fuchsia-600/25 blur-3xl" />
       <div className="relative mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-6 py-12">
