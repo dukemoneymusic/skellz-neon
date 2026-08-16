@@ -98,16 +98,10 @@ function applyShot(room: Room, roster: Player[], shooterId: string, input: ShotI
 
   let nextIndex = room.turnIndex;
   if (room.teamMode) {
-    // Co-op turn: the team keeps the ball as long as it keeps scoring. Make the
-    // box you're going for OR hit the opposite team (extraTurn) and the turn
-    // passes to your next team-mate — the side plays on. The first shot that
-    // does neither ends the team's turn and hands over to the other team.
-    const myTeam = result.state.caps.find((c) => c.id === shooterId)?.team;
-    if (result.extraTurn) {
-      nextIndex = pick((c) => c.team === myTeam) ?? pick(() => true) ?? room.turnIndex;
-    } else {
-      nextIndex = pick((c) => c.team !== myTeam) ?? pick(() => true) ?? room.turnIndex;
-    }
+    // Co-op: strict take-turns. You shoot, then your team-mate, then the other
+    // team, then theirs — every player gets one shot in turn (the order is
+    // grouped by team), win or miss. Nobody keeps the turn.
+    nextIndex = pick(() => true) ?? room.turnIndex;
   } else if (!result.extraTurn) {
     // Free-for-all: a make/hit lets you shoot again (index unchanged); a miss
     // passes to the next player.
