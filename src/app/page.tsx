@@ -13,7 +13,6 @@ export default function Home() {
   const [draftName, setDraftName] = useState<string | null>(null);
   const name = draftName ?? storedName;
   const [code, setCode] = useState("");
-  const [teamMode, setTeamMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showBoard, setShowBoard] = useState(false);
@@ -79,15 +78,10 @@ export default function Home() {
             <br />
             <b className="text-rose-300">The middle bites:</b> end up cleanly inside the 2 · 4 · 6 · 8 panels instead of
             13 — not touching a line — and you&apos;re stuck. That goes for getting <b>knocked</b> in by somebody else
-            just as much as flicking yourself in. Whoever knocks you back out advances that many boxes, and in co-op the
-            whole team moves up with them.
+            just as much as flicking yourself in. Whoever knocks you back out advances that many boxes.
             <br />
             <b className="text-fuchsia-300">Killas:</b> hitting a killa (while you aren&apos;t one) pushes you 1 box —
             it doesn&apos;t make you a killa. A killa needs 3 hits to take down a regular top.
-            <br />
-            <b className="text-cyan-300">Co-op:</b> pick your team in the lobby — up to four teams, in twos, threes or
-            fours — and add CPUs to any of them. When one teammate advances, the whole team rides up to that box with
-            them.
             <br />
             <b className="text-cyan-300">No walls send you home:</b> miss the chalk or bounce off the kerb and your top
             just stays out on the lot, still live.
@@ -101,25 +95,13 @@ export default function Home() {
             placeholder="Your name"
             className="w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 outline-none focus:border-cyan-400"
           />
-          <div className="mt-3 flex gap-2">
-            <button
-              onClick={() => setTeamMode(false)}
-              className={`flex-1 rounded-xl border py-2 text-sm font-bold ${!teamMode ? "border-cyan-400 bg-cyan-400/20" : "border-white/15"}`}
-            >
-              Free for all
-            </button>
-            <button
-              onClick={() => setTeamMode(true)}
-              className={`flex-1 rounded-xl border py-2 text-sm font-bold ${teamMode ? "border-fuchsia-400 bg-fuchsia-400/20" : "border-white/15"}`}
-            >
-              Co-op teams
-            </button>
-          </div>
           <div className="mt-4">
-            {/* Story mode is hidden until it's reworked — the create("story")
-                path and the STRY room still exist, just no UI entry to them. */}
+            {/* Co-op (team mode) is hidden for now, pending a rework — the
+                create() path, the `teamMode` plumbing and all the team rules
+                still exist, there's just no UI entry to make a team room. Story
+                mode is likewise hidden. */}
             <button
-              onClick={() => create("pvp", teamMode)}
+              onClick={() => create("pvp", false)}
               disabled={busy}
               className="w-full rounded-xl bg-cyan-400 py-3 font-black text-black disabled:opacity-50"
             >
@@ -127,7 +109,7 @@ export default function Home() {
             </button>
           </div>
           <p className="mt-2 text-center text-[11px] text-white/40">
-            Free-for-all or co-op teams. Add CPU bots in the lobby.
+            Free-for-all. Add CPU bots in the lobby.
           </p>
         </div>
 

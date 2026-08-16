@@ -25,7 +25,10 @@ function uniqueCode() {
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { name?: string; teamMode?: boolean; mode?: string };
   const name = (body.name || "Player").slice(0, 14);
-  const teamMode = Boolean(body.teamMode);
+  // Co-op (team mode) is disabled for now, pending a rework — force every new
+  // room to free-for-all regardless of what the client sends. Flip this back to
+  // `Boolean(body.teamMode)` and re-add the lobby toggle to bring co-op back.
+  const teamMode = false;
   const mode = body.mode === "story" ? "story" : "pvp";
   const token = nanoid(16);
 
