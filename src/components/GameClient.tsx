@@ -549,13 +549,29 @@ export default function GameClient({ code }: { code: string }) {
   const origin = placedValid ?? (myCap ? { x: myCap.x, z: myCap.z } : null);
 
   // What the 3D scene draws: your own top follows the placement while you're
-  // setting it, everyone else is untouched. Every top stays on screen at all
-  // times — team-mates piled on a box are spread into a small grid (see
-  // clusterTeamInBox) so they read as separate tops rather than overlapping.
+  // setting it, everyone else is untouched.
   const displayCaps = useMemo(() => {
     if (!placedValid || !myId) return caps;
     return caps.map((c) => (c.id === myId ? { ...c, x: placedValid.x, z: placedValid.z } : c));
   }, [caps, placedValid, myId]);
+
+  // Co-op: while a team shoots out of the box it's piled on, show ONLY the
+  // current shooter's top on that team — its team-mates sharing the box are
+  // hidden until it's their turn. Nobody else is touched: the other team and
+  // anyone not clustered stay fully visible.
+  const sceneCaps = useMemo(() => {
+    if (!teamMode || !turnId) return displayCaps;
+    const cur = displayCaps.find((c) => c.id === turnId);
+    if (!cur || cur.killer || !cur.onBoard || cur.step <= 0) return displayCaps;
+    const hidden = new Set<string>();
+    for (const c of displayCaps) {
+      if (c.id === turnId || !c.alive || c.killer || !c.onBoard) continue;
+      if (c.team === cur.team && c.step === cur.step && Math.hypot(c.x - cur.x, c.z - cur.z) < 8) {
+        hidden.add(c.id);
+      }
+    }
+    return hidden.size ? displayCaps.filter((c) => !hidden.has(c.id)) : displayCaps;
+  }, [displayCaps, teamMode, turnId]);
 
   /**
    * Drive the CPU turns.
@@ -939,7 +955,7 @@ export default function GameClient({ code }: { code: string }) {
         onPointerCancel={onPointerCancel}
       >
         <Scene
-          caps={displayCaps}
+          caps={sceneCaps}
           playback={playback}
           turnId={turnId}
           aim={aim}
