@@ -555,12 +555,13 @@ export default function GameClient({ code }: { code: string }) {
     return caps.map((c) => (c.id === myId ? { ...c, x: placedValid.x, z: placedValid.z } : c));
   }, [caps, placedValid, myId]);
 
-  // Co-op: while a team shoots out of the box it's piled on, show ONLY the
-  // current shooter's top on that team — its team-mates sharing the box are
-  // hidden until it's their turn. Nobody else is touched: the other team and
+  // Co-op: while a team WAITS on the box it's piled on, show ONLY the current
+  // shooter's top on that team — its team-mates sharing the box are hidden until
+  // it's their turn. But the moment a shot plays out, everyone reappears so you
+  // can watch all the tops move. Nobody else is ever touched: the other team and
   // anyone not clustered stay fully visible.
   const sceneCaps = useMemo(() => {
-    if (!teamMode || !turnId) return displayCaps;
+    if (!teamMode || !turnId || playback) return displayCaps;
     const cur = displayCaps.find((c) => c.id === turnId);
     if (!cur || cur.killer || !cur.onBoard || cur.step <= 0) return displayCaps;
     const hidden = new Set<string>();
@@ -571,7 +572,7 @@ export default function GameClient({ code }: { code: string }) {
       }
     }
     return hidden.size ? displayCaps.filter((c) => !hidden.has(c.id)) : displayCaps;
-  }, [displayCaps, teamMode, turnId]);
+  }, [displayCaps, teamMode, turnId, playback]);
 
   /**
    * Drive the CPU turns.
