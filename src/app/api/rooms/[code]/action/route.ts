@@ -97,12 +97,22 @@ function applyShot(room: Room, roster: Player[], shooterId: string, input: ShotI
   };
 
   let nextIndex = room.turnIndex;
-  // Both modes: make the box you're going for OR hit a top and you shoot AGAIN
-  // (index unchanged). Otherwise the turn passes to the next player — and in
-  // co-op the order is grouped by team, so it goes to your team-mate, then the
-  // other team. When a team-mate advances, the sim's auto-carry brings the whole
-  // team up onto the box, so they follow.
-  if (!result.extraTurn) {
+  if (room.teamMode) {
+    // Co-op: the team keeps the ball while it keeps scoring, and BOTH team-mates
+    // take turns doing it. Make your box OR hit a top (extraTurn) and the turn
+    // goes to your next team-mate — you both shoot again. The first shot that
+    // misses (no box, no hit) ends the team's turn and hands to the other team.
+    // (When a team-mate scores, the sim's auto-carry brings the whole team up
+    // onto that box — they both advance.)
+    const myTeam = result.state.caps.find((c) => c.id === shooterId)?.team;
+    if (result.extraTurn) {
+      nextIndex = pick((c) => c.team === myTeam) ?? pick(() => true) ?? room.turnIndex;
+    } else {
+      nextIndex = pick((c) => c.team !== myTeam) ?? pick(() => true) ?? room.turnIndex;
+    }
+  } else if (!result.extraTurn) {
+    // Free-for-all: a make/hit lets you shoot again (index unchanged); a miss
+    // passes to the next player.
     nextIndex = pick(() => true) ?? room.turnIndex;
   }
 
